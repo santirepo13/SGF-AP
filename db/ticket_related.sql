@@ -45,14 +45,14 @@ CREATE TABLE tickets (
     failure_type_id INT NOT NULL REFERENCES failure_types(id),
     description TEXT NOT NULL,
     address_id INT REFERENCES addresses(id),
-    status_id INT NOT NULL REFERENCES statuses(id) DEFAULT (SELECT id FROM statuses WHERE name = 'Registered'),
+    status_id INT NOT NULL REFERENCES statuses(id) DEFAULT 1,
     priority_id INT REFERENCES priorities(id),
     contact_email TEXT,
     contact_phone TEXT,
     diagnosis TEXT,
     solution TEXT,
     crew_id INT REFERENCES crews(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE evidences (
