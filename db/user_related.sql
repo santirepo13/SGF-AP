@@ -1,10 +1,10 @@
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(20) NOT NULL UNIQUE CHECK (name IN ('Operator','Coordinator','Crew','Admin'))
+    name VARCHAR(20) NOT NULL UNIQUE CHECK (name IN ('Citizen','Operator','Coordinator','Crew','Admin'))
 );
 
 INSERT INTO roles (name) VALUES
-    ('Citizen')
+    ('Citizen'),
     ('Operator'),
     ('Coordinator'),
     ('Crew'),
