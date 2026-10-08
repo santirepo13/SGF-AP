@@ -1,6 +1,6 @@
 """Typed data contracts shared by SGF-AP API layers."""
 
-from .address_types import AddressComponentsInput, AddressCreateInput, AddressOutput
+from .address.address_types import AddressComponentsInput, AddressCreateInput, AddressOutput
 from .catalog_types import (
     ActionOutput,
     ActionLookupInput,
@@ -23,11 +23,11 @@ from .catalog_types import (
 )
 from .actor_context import ActorContext
 from .common_types import UNSET, Unset, ensure_aware
-from .crew_member_types import CrewMemberInput, CrewMemberOutput, CrewMembershipResult
-from .crew_types import CrewCreateInput, CrewOutput, CrewUpdateInput
+from .users.crew_member_types import CrewMemberInput, CrewMemberOutput, CrewMembershipResult
+from .users.crew_types import CrewCreateInput, CrewOutput, CrewUpdateInput
 from .error_types import ErrorDetail, ErrorOutput
 from .execution_context import ACTOR_REQUIRED_OPERATIONS, ExecutionContext, requires_actor, validate_actor_context
-from .geolocation_types import (
+from .geolocation.geolocation_types import (
     CommuneByIdInput,
     CommuneLookupInput,
     CommuneOutput,
@@ -37,20 +37,21 @@ from .geolocation_types import (
     NeighborhoodLookupInput,
     NeighborhoodOutput,
 )
-from .evidence_types import EvidenceCreateInput, EvidenceOutput, EvidenceLookupInput
-from .history_event_types import HistoryEventCreateInput, HistoryEventLookupInput, HistoryEventOutput
+from .tickets.evidence_types import EvidenceCreateInput, EvidenceOutput, EvidenceLookupInput
+from .tickets.history_event_types import HistoryEventCreateInput, HistoryEventLookupInput, HistoryEventOutput
 from .operation_result import OperationResult
-from .ticket_types import (
+from .tickets.ticket_types import (
     TicketAssignmentInput,
     TicketAttentionInput,
     TicketClosureReviewInput,
     TicketCodeLookupInput,
     TicketCreateInput,
+    TicketUpdateInput,
     TicketLookupInput,
     TicketOperationInput,
     TicketOutput,
 )
-from .user_types import UserActivationInput, UserCreateInput, UserOutput, UserUpdateInput
+from .users.user_types import UserActivationInput, UserCreateInput, UserOutput, UserUpdateInput
 
 __all__ = [
     "UNSET",
@@ -110,6 +111,7 @@ __all__ = [
     "TicketClosureReviewInput",
     "TicketCodeLookupInput",
     "TicketCreateInput",
+    "TicketUpdateInput",
     "TicketLookupInput",
     "TicketOperationInput",
     "TicketOutput",

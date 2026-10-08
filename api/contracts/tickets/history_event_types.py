@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from .common_types import ensure_aware
+from ..common_types import ensure_aware
 
 
 @dataclass(frozen=True)

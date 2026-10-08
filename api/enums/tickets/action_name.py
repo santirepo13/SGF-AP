@@ -1,4 +1,4 @@
-from .sql_enum import SqlEnum
+from ..sql_enum import SqlEnum
 
 
 class ActionName(SqlEnum):

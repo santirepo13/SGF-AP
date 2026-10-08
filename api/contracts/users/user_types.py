@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .common_types import UNSET, Unset
+from ..common_types import UNSET, Unset
 
 
 @dataclass(frozen=True)

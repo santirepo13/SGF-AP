@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from .common_types import UNSET, Unset, ensure_aware, ensure_length
+from ..common_types import UNSET, Unset, ensure_aware, ensure_length
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,29 @@ class TicketCreateInput:
 
     def __post_init__(self) -> None:
         ensure_length(self.code, 24, "code")
+
+
+@dataclass(frozen=True)
+class TicketUpdateInput:
+    """Partial ticket update; UNSET preserves and None clears nullable fields."""
+
+    ticket_id: int
+    code: str | Unset = UNSET
+    reported_by: int | Unset = UNSET
+    failure_type_id: int | Unset = UNSET
+    description: str | Unset = UNSET
+    address_id: int | None | Unset = UNSET
+    status_id: int | Unset = UNSET
+    priority_id: int | None | Unset = UNSET
+    contact_email: str | None | Unset = UNSET
+    contact_phone: str | None | Unset = UNSET
+    diagnosis: str | None | Unset = UNSET
+    solution: str | None | Unset = UNSET
+    crew_id: int | None | Unset = UNSET
+
+    def __post_init__(self) -> None:
+        if self.code is not UNSET:
+            ensure_length(self.code, 24, "code")
 
 
 @dataclass(frozen=True)
