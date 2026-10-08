@@ -23,6 +23,19 @@ class TicketCreateInput:
 
 
 @dataclass(frozen=True)
+class TicketFilters:
+    reported_by: int | None = None
+    failure_type_id: int | None = None
+    address_id: int | None = None
+    status_id: int | None = None
+    priority_id: int | None = None
+    crew_id: int | None = None
+    municipality_id: int | None = None
+    commune_id: int | None = None
+    neighborhood_id: int | None = None
+
+
+@dataclass(frozen=True)
 class TicketUpdateInput:
     """Partial ticket update; UNSET preserves and None clears nullable fields."""
 

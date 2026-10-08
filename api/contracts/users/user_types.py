@@ -18,6 +18,13 @@ class UserCreateInput:
 
 
 @dataclass(frozen=True)
+class UserFilters:
+    email: str | None = None
+    role_id: int | None = None
+    active: bool | None = None
+
+
+@dataclass(frozen=True)
 class UserUpdateInput:
     user_id: int
     first_name: str | Unset = UNSET

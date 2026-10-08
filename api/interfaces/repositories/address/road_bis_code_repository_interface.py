@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import RoadBisCode
+
+class RoadBisCodeRepositoryInterface(Protocol):
+    def get_by_code(self, code: str) -> RoadBisCode | None: ...
+    def list_all(self) -> list[RoadBisCode]: ...

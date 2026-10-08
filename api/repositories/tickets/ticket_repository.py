@@ -1,19 +1,6 @@
-from dataclasses import dataclass
-from api.contracts import TicketCreateInput, TicketUpdateInput, UNSET
+from api.contracts import TicketCreateInput, TicketFilters, TicketUpdateInput, UNSET
 from ..mapping import ticket
 from ..persistence import RepositoryBase
-
-@dataclass(frozen=True)
-class TicketFilters:
-    reported_by: int | None = None
-    failure_type_id: int | None = None
-    address_id: int | None = None
-    status_id: int | None = None
-    priority_id: int | None = None
-    crew_id: int | None = None
-    municipality_id: int | None = None
-    commune_id: int | None = None
-    neighborhood_id: int | None = None
 
 _COLUMNS = "t.id, t.code, t.reported_by, t.failure_type_id, t.description, t.address_id, t.status_id, t.priority_id, t.contact_email, t.contact_phone, t.diagnosis, t.solution, t.crew_id, t.created_at"
 _BASE = " FROM tickets t"

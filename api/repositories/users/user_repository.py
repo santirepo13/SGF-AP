@@ -1,13 +1,6 @@
-from dataclasses import dataclass
-from api.contracts import UNSET, UserActivationInput, UserCreateInput, UserUpdateInput
+from api.contracts import UNSET, UserActivationInput, UserCreateInput, UserFilters, UserUpdateInput
 from ..mapping import user
 from ..persistence import RepositoryBase
-
-@dataclass(frozen=True)
-class UserFilters:
-    email: str | None = None
-    role_id: int | None = None
-    active: bool | None = None
 
 _COLUMNS = "id, first_name, last_name, email, password_hash, role_id, active"
 

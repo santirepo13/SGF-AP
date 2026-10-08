@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import RoadQuadrant
+
+class RoadQuadrantRepositoryInterface(Protocol):
+    def get_by_code(self, code: int) -> RoadQuadrant | None: ...
+    def list_all(self) -> list[RoadQuadrant]: ...

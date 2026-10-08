@@ -46,12 +46,13 @@ from .tickets.ticket_types import (
     TicketClosureReviewInput,
     TicketCodeLookupInput,
     TicketCreateInput,
+    TicketFilters,
     TicketUpdateInput,
     TicketLookupInput,
     TicketOperationInput,
     TicketOutput,
 )
-from .users.user_types import UserActivationInput, UserCreateInput, UserOutput, UserUpdateInput
+from .users.user_types import UserActivationInput, UserCreateInput, UserFilters, UserOutput, UserUpdateInput
 
 __all__ = [
     "UNSET",
@@ -111,6 +112,7 @@ __all__ = [
     "TicketClosureReviewInput",
     "TicketCodeLookupInput",
     "TicketCreateInput",
+    "TicketFilters",
     "TicketUpdateInput",
     "TicketLookupInput",
     "TicketOperationInput",
@@ -119,4 +121,5 @@ __all__ = [
     "UserCreateInput",
     "UserOutput",
     "UserUpdateInput",
+    "UserFilters",
 ]

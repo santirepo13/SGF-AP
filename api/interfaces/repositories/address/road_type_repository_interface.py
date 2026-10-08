@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import RoadType
+
+class RoadTypeRepositoryInterface(Protocol):
+    def get_by_code(self, code: str) -> RoadType | None: ...
+    def list_all(self) -> list[RoadType]: ...
