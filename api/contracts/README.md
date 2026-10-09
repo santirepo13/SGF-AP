@@ -1,49 +1,80 @@
-# Contratos de SGF-AP
+# Contratos de la API
 
-Este paquete contiene los tipos compartidos por repositorios, servicios y middleware. Está implementado con `dataclasses` y `typing` de la biblioteca estándar y no requiere conexión a PostgreSQL.
+El paquete api.contracts define los datos que cruzan contratos, modelos, repositorios, servicios y middleware. Son tipos independientes del framework web y de PostgreSQL: se pueden importar y probar sin abrir conexiones.
 
-## Correspondencia con SQL
+## Responsabilidad
 
-- `SERIAL` y `BIGSERIAL` se representan como `int` en las salidas persistidas.
-- `INT` y `SMALLINT` se representan como `int`.
-- `TEXT`, `VARCHAR(n)` y `CHAR(1)` se representan como `str`.
-- `BOOLEAN` se representa como `bool`.
-- `TIMESTAMPTZ` se representa como `datetime` con zona horaria obligatoria.
-- Las columnas SQL nullable se representan como `T | None`.
+Los contratos describen:
 
-Los identificadores generados por persistencia no aparecen en entradas de creación. `created_at` y `event_time` se reciben en las salidas.
+- Entradas de creación, consulta y modificación.
+- Salidas públicas de entidades y catálogos.
+- Actor y contexto de ejecución.
+- Resultado exitoso o fallido de una operación.
+- Detalles y salida pública de errores.
+- Ausencia, nulabilidad y actualizaciones parciales.
 
-## Actualizaciones parciales
+Las referencias externas se representan con identificadores. La existencia de esas referencias se comprueba en repositorios o servicios.
 
-Los campos modificables usan `UNSET` como valor predeterminado:
+## Organización
 
-- `UNSET`: conservar el valor actual.
-- Un valor concreto: reemplazar el valor actual.
-- `None`: eliminar el valor, únicamente para columnas nullable.
+| Módulo | Contenido |
+|---|---|
+| common_types.py | UNSET, Unset y validación de fechas con zona horaria. |
+| geolocation/ | Entradas y salidas de municipios, comunas y barrios. |
+| address/ | Componentes, creación y salida de direcciones. |
+| users/ | Usuarios, roles, cuadrillas y pertenencias. |
+| tickets/ | Tickets, filtros, evidencias e historial. |
+| catalog_types.py | Salidas y consultas de catálogos. |
+| actor_context.py | Identidad verificada del actor. |
+| execution_context.py | Operación, correlación y actor. |
+| operation_result.py | Resultado genérico de una operación. |
+| error_types.py | ErrorDetail y ErrorOutput. |
 
-`None` y `UNSET` son valores diferentes y no deben convertirse entre sí en repositorios o servicios.
+Todos los tipos se exportan desde api.contracts.
 
-## Actor y ejecución
+## Correspondencia con PostgreSQL
 
-`ExecutionContext` contiene la operación, el `correlation_id` y opcionalmente el `ActorContext`. Las operaciones protegidas están en `ACTOR_REQUIRED_OPERATIONS` y pueden comprobarse con `requires_actor()` o `validate_actor_context()`.
+- SERIAL y BIGSERIAL se representan como int.
+- INT y SMALLINT se representan como int.
+- TEXT, VARCHAR y CHAR se representan como str.
+- BOOLEAN se representa como bool.
+- TIMESTAMPTZ se representa como datetime con tzinfo.
+- Las columnas nullable se representan como T | None.
+- Los IDs generados y las fechas generadas por persistencia pertenecen a las salidas, no a las entradas de creación.
 
-El actor que ejecuta una operación es independiente de `reported_by`, que identifica al usuario que registró el ticket.
+Los contratos no reemplazan las restricciones relacionales del SQL: una FK, una unicidad o una regla que requiere consultar otra tabla se verifica en la capa correspondiente.
 
-## Resultados y errores
+## UNSET y modificaciones parciales
 
-`OperationResult[T]` representa éxito o fallo controlado:
+UNSET representa un campo omitido y es distinto de None:
 
-- Éxito: `success=True`, `error=None`; `data` puede ser `None` cuando la operación no produce datos.
-- Fallo: `success=False`, `error` definido y `data=None`.
-- Una colección vacía es un dato válido y no representa un fallo.
+| Entrada | Significado |
+|---|---|
+| UNSET | Conservar el valor actual. |
+| Un valor | Reemplazar el valor actual. |
+| None | Eliminar el valor, solo si la columna admite NULL. |
 
-`ErrorOutput` contiene `code`, `message`, detalles controlados y `correlation_id`. Los detalles nunca deben incluir credenciales, hashes ni trazas internas.
+Esto aplica a UserUpdateInput, CrewUpdateInput y TicketUpdateInput. Los repositorios deben conservar esta diferencia al construir UPDATE.
 
-## Módulos
+## Contexto de ejecución
 
-- `user_types.py`, `crew_types.py`, `crew_member_types.py`
-- `geolocation_types.py`, `catalog_types.py`
-- `address_types.py`, `ticket_types.py`
-- `evidence_types.py`, `history_event_types.py`
-- `actor_context.py`, `execution_context.py`
-- `operation_result.py`, `error_types.py`
+ExecutionContext contiene operation, correlation_id y actor opcional. ActorContext contiene user_id, role_id y active.
+
+El actor que ejecuta la operación es diferente de reported_by en un ticket y de uploaded_by en una evidencia. Las operaciones protegidas se identifican en ACTOR_REQUIRED_OPERATIONS y se validan con requires_actor() y validate_actor_context().
+
+## OperationResult
+
+OperationResult[T] representa el resultado de una operación:
+
+- Éxito: success=True y error=None.
+- Fallo: success=False, data=None y error definido.
+- Lista vacía: éxito válido cuando no hay coincidencias.
+- data=None: ausencia esperada solo cuando el método lo permite.
+- data=False: resultado booleano válido; no significa fallo.
+
+ErrorOutput contiene code, message, details y correlation_id. No debe incluir contraseñas, hashes, consultas ni trazas.
+
+## Verificación
+
+Las pruebas deben verificar campos, tipos, nulabilidad, valores predeterminados, zonas horarias, UNSET frente a None, salidas públicas y consistencia de OperationResult. Los contratos pueden probarse sin conexión local.
+

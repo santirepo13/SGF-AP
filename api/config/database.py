@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
@@ -16,7 +16,7 @@ class DatabaseConfig:
     port: int
     name: str
     user: str
-    password: str
+    password: str = field(repr=False)
 
     @property
     def connection_kwargs(self) -> dict[str, object]:

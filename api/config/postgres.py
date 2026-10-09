@@ -19,9 +19,10 @@ class PostgresConnectionProvider:
         self._connector = connector
 
     def connect(self) -> Any:
-        connector = self._connector or _default_connector
         try:
-            return connector(**self.config.connection_kwargs)
+            if self._connector is None:
+                return _default_connector(self.config)
+            return self._connector(**self.config.connection_kwargs)
         except Exception as exc:
             raise ApplicationError.persistence_failure(cause=exc) from exc
 
@@ -39,9 +40,9 @@ class PostgresConnectionProvider:
                 pass
 
 
-def _default_connector(**kwargs: object) -> Any:
+def _default_connector(config: DatabaseConfig) -> Any:
     try:
         import psycopg
     except ModuleNotFoundError as exc:
         raise RuntimeError("psycopg is not installed") from exc
-    return psycopg.connect(**kwargs)
+    return psycopg.connect(**config.connection_kwargs)

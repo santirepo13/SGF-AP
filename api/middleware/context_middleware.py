@@ -22,7 +22,12 @@ class ContextMiddleware:
         self.correlation_ids = correlation_ids or UuidCorrelationIdGenerator()
 
     def process(self, request: MiddlewareRequest, next_handler: NextHandler):
-        operation = request.operation_name
+        selected_operation = request.operation
+        actual_operation = f"{request.service_name}.{request.method_name}"
+        if selected_operation is not None and selected_operation != actual_operation:
+            correlation_id = request.context.correlation_id if request.context and request.context.correlation_id else self.correlation_ids.generate()
+            raise ApplicationError.invalid_value("operation", "La operación no corresponde con el método seleccionado.", correlation_id=correlation_id)
+        operation = actual_operation
         if not operation or operation not in OPERATION_POLICIES:
             correlation_id = request.context.correlation_id if request.context and request.context.correlation_id else self.correlation_ids.generate()
             raise ApplicationError.invalid_value("operation", "La operación no está registrada.", correlation_id=correlation_id)
