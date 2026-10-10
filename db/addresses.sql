@@ -84,8 +84,24 @@ CREATE TABLE addresses (
     cross_quadrant_code INT REFERENCES cross_quadrants(code),
     door_plate_number SMALLINT NOT NULL CHECK (door_plate_number BETWEEN 1 AND 9999),
     neighborhood_id INT REFERENCES neighborhoods(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE NULLS NOT DISTINCT (road_type_code, road_number, road_suffix_letter_code, road_bis_code, road_bis_suffix, road_quadrant_code,
-                               cross_road_number, cross_suffix_letter_code, cross_bis_code, cross_bis_suffix, cross_quadrant_code,
-                               door_plate_number, neighborhood_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Treat NULL address components as equal so the same partial address cannot
+-- be inserted twice. Multiple tickets may still reference the same address.
+CREATE UNIQUE INDEX addresses_components_unique_idx
+ON addresses (
+    road_type_code,
+    road_number,
+    (COALESCE(road_suffix_letter_code, '')),
+    (COALESCE(road_bis_code, '')),
+    (COALESCE(road_bis_suffix, '')),
+    (COALESCE(road_quadrant_code, -1)),
+    cross_road_number,
+    (COALESCE(cross_suffix_letter_code, '')),
+    (COALESCE(cross_bis_code, '')),
+    (COALESCE(cross_bis_suffix, '')),
+    (COALESCE(cross_quadrant_code, -1)),
+    door_plate_number,
+    (COALESCE(neighborhood_id, -1))
 );

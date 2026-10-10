@@ -1,0 +1,5 @@
+from .commune_repository_interface import CommuneRepositoryInterface
+from .municipality_repository_interface import MunicipalityRepositoryInterface
+from .neighborhood_repository_interface import NeighborhoodRepositoryInterface
+
+__all__ = ["CommuneRepositoryInterface", "MunicipalityRepositoryInterface", "NeighborhoodRepositoryInterface"]

@@ -1,0 +1,17 @@
+"""Central error codes for the application."""
+
+from enum import Enum
+
+
+class ErrorCode(str, Enum):
+    REQUIRED_FIELD_MISSING = "VAL-001"
+    INVALID_VALUE = "VAL-002"
+    RESOURCE_NOT_FOUND = "RES-001"
+    INVALID_REFERENCE = "REL-001"
+    UNIQUE_CONFLICT = "CON-001"
+    INACTIVE_USER = "USR-001"
+    FORBIDDEN_OPERATION = "PER-001"
+    INVALID_TICKET_STATE = "TKT-001"
+    CATALOG_VALUE_UNAVAILABLE = "CAT-001"
+    PERSISTENCE_FAILURE = "SYS-001"
+    UNEXPECTED_ERROR = "SYS-002"

@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import CrossSuffixLetter
+
+class CrossSuffixLetterRepositoryInterface(Protocol):
+    def get_by_code(self, code: str) -> CrossSuffixLetter | None: ...
+    def list_all(self) -> list[CrossSuffixLetter]: ...

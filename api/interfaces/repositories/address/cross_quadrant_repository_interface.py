@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import CrossQuadrant
+
+class CrossQuadrantRepositoryInterface(Protocol):
+    def get_by_code(self, code: int) -> CrossQuadrant | None: ...
+    def list_all(self) -> list[CrossQuadrant]: ...

@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import RoadSuffixLetter
+
+class RoadSuffixLetterRepositoryInterface(Protocol):
+    def get_by_code(self, code: str) -> RoadSuffixLetter | None: ...
+    def list_all(self) -> list[RoadSuffixLetter]: ...

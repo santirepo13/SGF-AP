@@ -1,0 +1,6 @@
+from typing import Protocol
+from api.models import CrossBisCode
+
+class CrossBisCodeRepositoryInterface(Protocol):
+    def get_by_code(self, code: str) -> CrossBisCode | None: ...
+    def list_all(self) -> list[CrossBisCode]: ...
