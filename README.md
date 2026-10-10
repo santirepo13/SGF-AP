@@ -19,15 +19,7 @@ La implementación actual contiene la base técnica de la API:
 - Punto de entrada ASGI con FastAPI y Uvicorn.
 - Pruebas pytest y ejecutor acumulado `tests/coverage.py`.
 
-El alcance funcional documentado en los PDF incluye registro y seguimiento de reportes, validación, control de duplicados, priorización, asignación, intervención, evidencias, cierre, historial, indicadores y administración. Algunas de esas funciones todavía requieren rutas HTTP y componentes de producto adicionales. Actualmente el servidor se utiliza para verificar el arranque, la configuración y la conexión a PostgreSQL; no hay rutas de negocio públicas configuradas, por lo que las solicitudes HTTP devuelven `404`.
-
-Los documentos de referencia están en `docs/`:
-
-- `tareanegocio.pdf`: contexto, actores y reglas del negocio.
-- `tarea2 (1).pdf`: requisitos funcionales y no funcionales.
-- `Correccion Tarea 3 - Santiago Restrepo Torres.pdf`: referencia de pruebas estructurales, casos PE/AD y comportamiento transaccional.
-
-La referencia de pruebas usa un modelo algorítmico con nombres en español; no debe confundirse automáticamente con los nombres de la API actual ni con sus rutas HTTP.
+El alcance funcional incluye registro y seguimiento de reportes, validación, control de duplicados, priorización, asignación, intervención, evidencias, cierre, historial, indicadores y administración. Algunas de esas funciones todavía requieren rutas HTTP y componentes de producto adicionales. Actualmente el servidor se utiliza para verificar el arranque, la configuración y la conexión a PostgreSQL; no hay rutas de negocio públicas configuradas, por lo que las solicitudes HTTP devuelven `404`.
 
 ## Estructura principal
 
@@ -115,19 +107,33 @@ Actualmente no hay rutas de negocio públicas configuradas; las solicitudes HTTP
 
 ## Ejecutar las pruebas
 
-El ejecutor `tests/coverage.py` carga los archivos `tests/test_*.py`, ejecuta la suite acumulada y muestra el resultado por prueba.
+El ejecutor `tests/coverage.py` descubre los archivos `test_*.py` en todos los subdirectorios de `tests/`, ejecuta la suite acumulada y muestra el resultado por prueba.
 
-```bash
-python tests/coverage.py --unit-only
+Las pruebas se organizan por componente:
+
+```text
+tests/
+├── config/          Configuración y conexión PostgreSQL
+├── contracts/       Entradas, salidas y resultados
+├── errors/          Clasificación y protección de errores
+├── interfaces/      Compatibilidad e inventario de interfaces
+├── middleware/      Cadena de ejecución y autorización
+├── models/          Modelos y conversiones de enums
+├── repositories/    Consultas, ausencias y fallos de persistencia
+├── services/        Resultados y errores de servicios
+├── ticket_workflow/ Los 56 casos prioritarios y su medición
+├── support/         Fixtures, dobles y utilidades compartidas
+├── conftest.py      Registro de fixtures y trazabilidad de ejecución
+└── coverage.py      Ejecución acumulada y reportes
 ```
 
-Para incluir la conexión real a PostgreSQL:
+La suite completa exige conexión real a PostgreSQL:
 
 ```bash
-python tests/coverage.py --integration
+python tests/coverage.py
 ```
 
-Las pruebas de integración necesitan credenciales válidas en `api/.env`, acceso al servidor y una base de datos preparada.
+Se requieren credenciales válidas en `api/.env`, acceso al servidor y una base de datos preparada. El ejecutor genera `traceability_tests/test_results.csv`.
 
 ## Mapa de directorios
 
