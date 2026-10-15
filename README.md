@@ -82,7 +82,7 @@ python -m pip install -r tests/requirements.txt
 Crear `api/.env` y completar la contraseña real:
 
 ```env
-DB_HOST=87.239.135.39
+DB_HOST=SERVER_IP
 DB_PORT=5432
 DB_NAME=SGFAP
 DB_USER=postgres
