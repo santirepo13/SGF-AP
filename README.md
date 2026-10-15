@@ -231,8 +231,5 @@ Reglas de aplicación y coordinación de repositorios.
 - services/users/ — UserService y CrewService.
 - Documentación: api/services/README.md.
 
-## Logs
-
-El proceso registra eventos como `api_startup_started`, `database_connection_opened`, `database_readiness_query_succeeded`, `api_startup_ready` y `database_connection_closed`. Los logs no deben incluir contraseñas, hashes, credenciales ni parámetros sensibles.
 
 
