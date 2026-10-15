@@ -30,5 +30,10 @@ class AddressService(ServiceBase):
             if value.road_bis_code: road += f" BIS {value.road_bis_code}"
             cross = f"{value.cross_road_number}"
             if value.cross_suffix_letter_code: cross += value.cross_suffix_letter_code
-            return f"{road} # {cross} - {value.door_plate_number}"
+            base = f"{road} # {cross} - {value.door_plate_number}"
+            if value.neighborhood_id:
+                neighborhood = self.neighborhoods.get_by_id(value.neighborhood_id)
+                if neighborhood:
+                    base += f", {neighborhood.name}"
+            return base
         return self._execute(context, context.operation, work)
