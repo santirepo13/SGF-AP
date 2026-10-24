@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, fields
+from datetime import datetime
 from types import UnionType
 from typing import Union, get_args, get_origin, get_type_hints
+
+from api.contracts import Unset
 
 
 def response_envelopes(
@@ -68,13 +71,18 @@ def value_schema(annotation: object) -> dict[str, object]:
         return {"type": "string"}
     if annotation is bool:
         return {"type": "boolean"}
+    if annotation is datetime:
+        return {"type": "string", "format": "date-time"}
 
     origin = get_origin(annotation)
     if origin in (Union, UnionType):
         options = get_args(annotation)
-        non_null = [option for option in options if option is not type(None)]
-        if len(non_null) == 1 and len(non_null) != len(options):
-            return {**value_schema(non_null[0]), "nullable": True}
+        public_options = [option for option in options if option not in (type(None), Unset)]
+        if len(public_options) == 1:
+            schema = value_schema(public_options[0])
+            if type(None) in options:
+                return {**schema, "nullable": True}
+            return schema
     return {"type": "string"}
 
 

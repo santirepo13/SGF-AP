@@ -250,6 +250,14 @@ def get_crew_service(
     return operation_dependencies.crew_service
 
 
+def get_ticket_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> TicketServiceInterface:
+    """Provide the request-scoped ticket service to ticket HTTP routes."""
+
+    return operation_dependencies.ticket_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),

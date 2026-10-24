@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from api.dependencies import (
     ApplicationDependencies,
     ConnectionTransactionCoordinator,
     _safe_log_fields,
+    get_ticket_service,
     prepare_application_dependencies,
 )
 
@@ -44,6 +47,12 @@ class FakeConnectionProvider:
                 return False
 
         return ConnectionScope()
+
+
+def test_get_ticket_service_returns_the_request_scoped_ticket_service() -> None:
+    service = object()
+
+    assert get_ticket_service(SimpleNamespace(ticket_service=service)) is service
 
 
 def test_operation_dependencies_share_connection_transaction_and_release_it() -> None:
