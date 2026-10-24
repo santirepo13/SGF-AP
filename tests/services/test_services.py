@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.contracts import ActorContext, ExecutionContext
+from api.contracts import ActorContext, ExecutionContext, UserUpdateInput
 from api.errors import ErrorCode
 from api.models import User
 from api.services.users.user_service import UserService
@@ -63,6 +63,24 @@ def test_user_service_uses_injected_repository_and_excludes_password_hash():
     assert result.data.email == "ada@example.com"
     assert result.data.active is False
     assert not hasattr(result.data, "password_hash")
+
+
+def test_user_update_of_an_unknown_user_returns_resource_not_found():
+    """An update cannot report success when its target user does not exist."""
+
+    class MissingUsers:
+        def update(self, data):
+            return None
+
+    service = UserService(MissingUsers(), Roles())
+    context = ExecutionContext("UserService.update", "corr-update", ActorContext(99, 1, True))
+
+    result = service.update(context, UserUpdateInput(user_id=404))
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == ErrorCode.RESOURCE_NOT_FOUND.value
+    assert result.error.correlation_id == "corr-update"
 
 
 def _service(service_type):

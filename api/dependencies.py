@@ -234,6 +234,14 @@ def get_address_service(
     return operation_dependencies.address_service
 
 
+def get_user_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> UserServiceInterface:
+    """Provide the request-scoped user service to user HTTP routes."""
+
+    return operation_dependencies.user_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),
