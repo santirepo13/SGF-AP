@@ -242,6 +242,14 @@ def get_user_service(
     return operation_dependencies.user_service
 
 
+def get_crew_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> CrewServiceInterface:
+    """Provide the request-scoped crew service to crew HTTP routes."""
+
+    return operation_dependencies.crew_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),

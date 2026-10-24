@@ -15,9 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.contracts import ActorContext, ExecutionContext, UserUpdateInput
+from api.contracts import ActorContext, CrewMemberInput, CrewUpdateInput, ExecutionContext, UserUpdateInput
 from api.errors import ErrorCode
 from api.models import User
+from api.services.users.crew_service import CrewService
 from api.services.users.user_service import UserService
 from tests.support.component_catalog import SERVICE_PAIRS, method_cases
 from tests.support.doubles import FailingDependency
@@ -81,6 +82,32 @@ def test_user_update_of_an_unknown_user_returns_resource_not_found():
     assert result.error is not None
     assert result.error.code == ErrorCode.RESOURCE_NOT_FOUND.value
     assert result.error.correlation_id == "corr-update"
+
+
+def test_crew_update_and_membership_change_of_unknown_records_return_resource_not_found():
+    """Crew maintenance must not convert an absent target into successful null data."""
+
+    class MissingCrews:
+        def update(self, data):
+            return None
+
+    class MissingMembers:
+        def update_crew(self, user_id, crew_id):
+            return None
+
+    service = CrewService(MissingCrews(), MissingMembers(), object())
+    context = ExecutionContext("CrewService.update", "corr-crew-update", ActorContext(99, 1, True))
+
+    crew_result = service.update(context, CrewUpdateInput(crew_id=404, name="Unknown crew"))
+    membership_context = ExecutionContext("CrewService.change_crew", "corr-membership-change", ActorContext(99, 1, True))
+    membership_result = service.change_crew(membership_context, CrewMemberInput(user_id=404, crew_id=5))
+
+    assert crew_result.success is False
+    assert crew_result.error is not None
+    assert crew_result.error.code == ErrorCode.RESOURCE_NOT_FOUND.value
+    assert membership_result.success is False
+    assert membership_result.error is not None
+    assert membership_result.error.code == ErrorCode.RESOURCE_NOT_FOUND.value
 
 
 def _service(service_type):
