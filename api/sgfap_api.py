@@ -10,16 +10,28 @@ from fastapi import FastAPI
 
 from api.config import PostgresConnectionProvider, load_database_config
 from api.dependencies import prepare_application_dependencies
+from api.errors.http import register_http_error_handlers
+from api.http.adapter import HttpOperationAdapter
+from api.middleware.base import CorrelationIdGenerator, IdentityProvider, PermissionChecker
 from api.routes import register_routers
 
 logger = logging.getLogger("sgf_ap.api")
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    identity_provider: IdentityProvider | None = None,
+    permission_checker: PermissionChecker | None = None,
+    correlation_ids: CorrelationIdGenerator | None = None,
+) -> FastAPI:
     """Build SGF-AP without opening runtime resources during import."""
 
     _configure_logging()
     application = FastAPI(title="SGF-AP", lifespan=lifespan)
+    application.state.identity_provider = identity_provider
+    application.state.permission_checker = permission_checker
+    application.state.correlation_ids = correlation_ids
+    register_http_error_handlers(application)
     register_routers(application)
     return application
 
@@ -47,7 +59,13 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
         application.state.db_config = config
         application.state.db_provider = provider
-        application.state.dependencies = prepare_application_dependencies(provider)
+        application.state.dependencies = prepare_application_dependencies(
+            provider,
+            identity_provider=getattr(application.state, "identity_provider", None),
+            permission_checker=getattr(application.state, "permission_checker", None),
+            correlation_ids=getattr(application.state, "correlation_ids", None),
+        )
+        application.state.http_adapter = HttpOperationAdapter()
         logger.info("application_dependencies_prepared")
     except BaseException:
         logger.exception("api_startup_failed")
@@ -77,7 +95,7 @@ def _close_startup_connection(connection: object) -> None:
 def _release_application_resources(application: FastAPI) -> None:
     """Release only application-scoped values; request connections close per operation."""
 
-    for name in ("dependencies", "db_provider", "db_config"):
+    for name in ("http_adapter", "dependencies", "db_provider", "db_config"):
         if hasattr(application.state, name):
             try:
                 delattr(application.state, name)

@@ -28,6 +28,8 @@ _DEFINITIONS: dict[ErrorCode, ErrorDefinition] = {
     ErrorCode.CATALOG_VALUE_UNAVAILABLE: ErrorDefinition(ErrorCode.CATALOG_VALUE_UNAVAILABLE, "Catálogo", "Un valor de catálogo requerido para la operación no está disponible."),
     ErrorCode.PERSISTENCE_FAILURE: ErrorDefinition(ErrorCode.PERSISTENCE_FAILURE, "Persistencia", "No fue posible completar la operación de persistencia."),
     ErrorCode.UNEXPECTED_ERROR: ErrorDefinition(ErrorCode.UNEXPECTED_ERROR, "Interno", "Ocurrió un error interno inesperado."),
+    ErrorCode.HTTP_ROUTE_NOT_FOUND: ErrorDefinition(ErrorCode.HTTP_ROUTE_NOT_FOUND, "HTTP", "La ruta solicitada no existe."),
+    ErrorCode.HTTP_METHOD_NOT_ALLOWED: ErrorDefinition(ErrorCode.HTTP_METHOD_NOT_ALLOWED, "HTTP", "El método HTTP no está permitido para esta ruta."),
 }
 
 

@@ -32,7 +32,7 @@ class TechnicalError(Exception):
 def test_error_code_catalog_is_complete_and_immutable():
     """Every public error has one catalogue definition that cannot be changed."""
     assert set(ErrorCatalog.definitions) == set(ErrorCode)
-    assert len(ErrorCatalog.all()) == 11
+    assert len(ErrorCatalog.all()) == len(ErrorCode)
     with pytest.raises(TypeError):
         ErrorCatalog.definitions[ErrorCode.INVALID_VALUE] = ErrorCatalog.get(ErrorCode.INVALID_VALUE)
 

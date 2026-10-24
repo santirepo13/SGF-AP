@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import Request
 
 from api.config import PostgresConnectionProvider
+from api.contracts import ActorContext
+from api.http.context import RequestIdentityProvider, bind_request_actor
 from api.interfaces.services import (
     AddressServiceInterface,
     CatalogServiceInterface,
@@ -28,6 +30,7 @@ from api.middleware import (
     MiddlewarePipeline,
     ValidationMiddleware,
 )
+from api.middleware.base import CorrelationIdGenerator, IdentityProvider, PermissionChecker
 from api.middleware.context_middleware import UuidCorrelationIdGenerator
 from api.repositories import (
     ActionRepository,
@@ -149,9 +152,22 @@ class OperationDependencies:
 class ApplicationDependencies:
     """Application-level composition with isolated dependencies per operation."""
 
-    def __init__(self, connection_provider: PostgresConnectionProvider, pipeline: MiddlewarePipeline) -> None:
+    def __init__(
+        self,
+        connection_provider: PostgresConnectionProvider,
+        pipeline: MiddlewarePipeline,
+        identity_provider: IdentityProvider,
+        correlation_ids: CorrelationIdGenerator,
+    ) -> None:
         self.connection_provider = connection_provider
         self.pipeline = pipeline
+        self.identity_provider = identity_provider
+        self.correlation_ids = correlation_ids
+
+    @contextmanager
+    def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
+        with bind_request_actor(actor):
+            yield
 
     @contextmanager
     def operation(self) -> Iterator[OperationDependencies]:
@@ -161,21 +177,35 @@ class ApplicationDependencies:
             yield _build_operation_dependencies(repositories, transaction, self.pipeline)
 
 
-def prepare_application_dependencies(connection_provider: PostgresConnectionProvider) -> ApplicationDependencies:
-    """Create dependencies that may safely live for the application lifetime."""
+def prepare_application_dependencies(
+    connection_provider: PostgresConnectionProvider,
+    *,
+    identity_provider: IdentityProvider | None = None,
+    permission_checker: PermissionChecker | None = None,
+    correlation_ids: CorrelationIdGenerator | None = None,
+) -> ApplicationDependencies:
+    """Create application-shared collaborators and request-scoped service factories."""
 
+    trusted_identity_provider = identity_provider or UnauthenticatedIdentityProvider()
+    request_identity_provider = RequestIdentityProvider()
+    correlation_generator = correlation_ids or UuidCorrelationIdGenerator()
     execution_logger = StructuredExecutionLogger(logger)
     pipeline = MiddlewarePipeline(
         context=ContextMiddleware(
-            identity_provider=UnauthenticatedIdentityProvider(),
-            correlation_ids=UuidCorrelationIdGenerator(),
+            identity_provider=request_identity_provider,
+            correlation_ids=correlation_generator,
         ),
         validation=ValidationMiddleware(),
-        authorization=AuthorizationMiddleware(permission_checker=DenyPermissionChecker()),
+        authorization=AuthorizationMiddleware(permission_checker=permission_checker or DenyPermissionChecker()),
         errors=ErrorMiddleware(),
         logging=ExecutionLoggingMiddleware(execution_logger),
     )
-    return ApplicationDependencies(connection_provider, pipeline)
+    return ApplicationDependencies(
+        connection_provider,
+        pipeline,
+        trusted_identity_provider,
+        correlation_generator,
+    )
 
 
 def get_operation_dependencies(request: Request) -> Iterator[OperationDependencies]:

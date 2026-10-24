@@ -271,6 +271,8 @@ def _explanation(trace: dict[str, object], nodeid: str, case_id: str) -> str:
             "CATALOG_VALUE_UNAVAILABLE": "a required catalogue option is unavailable",
             "PERSISTENCE_FAILURE": "the database operation fails",
             "UNEXPECTED_ERROR": "an unexpected internal error occurs",
+            "HTTP_ROUTE_NOT_FOUND": "the requested route does not exist",
+            "HTTP_METHOD_NOT_ALLOWED": "the selected HTTP method is not allowed for the route",
         }
         situation = situations.get(case_id.removeprefix("S3-"), "an application error occurs")
         return f"The error catalogue provides a clear message and category when {situation}."
