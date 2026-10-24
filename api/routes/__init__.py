@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from .address.address_routes import router as address_router
+from .address import address_router
 from .geolocation import catalog_router
 from .tickets.evidence_routes import router as evidence_router
 from .tickets.history_routes import router as history_router

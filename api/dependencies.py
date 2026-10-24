@@ -226,6 +226,14 @@ def get_catalog_service(
     return operation_dependencies.catalog_service
 
 
+def get_address_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> AddressServiceInterface:
+    """Provide the request-scoped address service to address HTTP routes."""
+
+    return operation_dependencies.address_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),
