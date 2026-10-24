@@ -6,9 +6,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from api.config import PostgresConnectionProvider
 from api.contracts import ActorContext
@@ -216,6 +216,14 @@ def get_operation_dependencies(request: Request) -> Iterator[OperationDependenci
         raise RuntimeError("application dependencies are not initialized")
     with dependencies.operation() as operation:
         yield operation
+
+
+def get_catalog_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> CatalogServiceInterface:
+    """Provide the request-scoped catalog service to catalog HTTP routes."""
+
+    return operation_dependencies.catalog_service
 
 
 def _build_repositories(connection: Any) -> RepositorySet:
