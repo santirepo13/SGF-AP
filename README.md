@@ -16,7 +16,7 @@ La implementación actual contiene la base técnica de la API:
 - Servicios de aplicación e interfaces de servicios.
 - Middleware de contexto, validación, autorización, errores y logging.
 - Configuración de PostgreSQL mediante `api/.env`.
-- Punto de entrada ASGI con FastAPI y Uvicorn.
+- Fábrica FastAPI, composición de dependencias y punto de entrada ASGI con Uvicorn.
 - Pruebas pytest y ejecutor acumulado `tests/coverage.py`.
 
 El alcance funcional incluye registro y seguimiento de reportes, validación, control de duplicados, priorización, asignación, intervención, evidencias, cierre, historial, indicadores y administración. Algunas de esas funciones todavía requieren rutas HTTP y componentes de producto adicionales. Actualmente el servidor se utiliza para verificar el arranque, la configuración y la conexión a PostgreSQL; no hay rutas de negocio públicas configuradas, por lo que las solicitudes HTTP devuelven `404`.
@@ -26,6 +26,7 @@ El alcance funcional incluye registro y seguimiento de reportes, validación, co
 ```text
 api/
 ├── config/          Configuración y conexión PostgreSQL
+├── dependencies.py  Composición y alcance de dependencias
 ├── contracts/       Contratos tipados de la API
 ├── enums/           Valores cerrados del dominio
 ├── errors/          Errores centralizados
@@ -33,7 +34,9 @@ api/
 ├── middleware/      Cadena de ejecución de la API
 ├── models/          Modelos internos de persistencia
 ├── repositories/    Acceso parametrizado a PostgreSQL
+├── routes/          Registro central de grupos HTTP
 ├── services/        Servicios de aplicación
+├── sgfap_api.py     Fábrica FastAPI y ciclo de vida
 └── main.py          Punto de entrada ASGI
 
 db/                  Scripts SQL
@@ -98,12 +101,12 @@ La aplicación valida estas variables antes de intentar conectarse. Una contrase
 Desde la raíz del proyecto y con `.venv` activado:
 
 ```bash
-python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --log-level info
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8002 --log-level info
 ```
 
-La dirección local es `http://localhost:8000`. Durante el startup la aplicación carga y valida `api/.env`, abre PostgreSQL, ejecuta `SELECT 1`, registra la disponibilidad y cierra la conexión al detener Uvicorn. Para detenerla, presiona `Ctrl+C`.
+La dirección local es `http://localhost:8002`. Durante el startup la aplicación carga y valida `api/.env`, prepara el proveedor PostgreSQL y verifica la disponibilidad con `SELECT 1` mediante una conexión temporal, que se cierra antes de atender solicitudes. Cada operación abre y libera su propia conexión; los repositorios y el coordinador de transacciones de esa operación comparten la misma conexión. Para detenerla, presiona `Ctrl+C`.
 
-Actualmente no hay rutas de negocio públicas configuradas; las solicitudes HTTP devuelven `404`. Esto permite verificar el arranque, la conexión y el cierre antes de publicar las rutas.
+Los grupos de rutas se registran de forma centralizada. Los endpoints HTTP funcionales se incorporarán en los scrums posteriores; por ahora las solicitudes HTTP devuelven `404`.
 
 ## Ejecutar las pruebas
 
@@ -231,5 +234,8 @@ Reglas de aplicación y coordinación de repositorios.
 - services/users/ — UserService y CrewService.
 - Documentación: api/services/README.md.
 
+## Logs
+
+El proceso registra eventos como `api_startup_started`, `database_provider_prepared`, `database_readiness_check_succeeded`, `api_startup_ready` y `api_shutdown_finished`. Los logs no deben incluir contraseñas, hashes, credenciales, cuerpos de solicitud ni parámetros sensibles.
 
 

@@ -17,5 +17,5 @@ class UserService(ServiceBase):
             if self.roles.get_by_id(data.role_id) is None: raise self._missing("role", context)
             return self._get(context, self.users.create(data))
         return self._execute(context, context.operation, work, write=True, actor_required=True)
-    def update(self, context, data: UserUpdateInput) -> OperationResult[UserOutput]: return self._execute(context, context.operation, lambda: self._out(value) if (value := self.users.update(data)) else None, write=True, actor_required=True)
+    def update(self, context, data: UserUpdateInput) -> OperationResult[UserOutput]: return self._execute(context, context.operation, lambda: self._get(context, self.users.update(data)), write=True, actor_required=True)
     def set_active(self, context, data: UserActivationInput) -> OperationResult[UserOutput]: return self._execute(context, context.operation, lambda: self._get(context, self.users.set_active(data)), write=True, actor_required=True)
