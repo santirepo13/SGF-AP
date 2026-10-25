@@ -6,10 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.config import APIConfig
 from api.dependencies import (
     ApplicationDependencies,
     ConnectionTransactionCoordinator,
     _safe_log_fields,
+    get_api_config,
     get_evidence_service,
     get_history_service,
     get_ticket_service,
@@ -64,6 +66,10 @@ def test_request_scoped_ticket_evidence_and_history_service_dependencies() -> No
     assert get_ticket_service(operation_dependencies) is ticket_service
     assert get_evidence_service(operation_dependencies) is evidence_service
     assert get_history_service(operation_dependencies) is history_service
+
+    api_config = APIConfig(8002, "connector", "secret")
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(api_config=api_config)))
+    assert get_api_config(request) is api_config
 
 
 def test_operation_dependencies_share_connection_transaction_and_release_it() -> None:

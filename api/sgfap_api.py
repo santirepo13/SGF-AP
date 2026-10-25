@@ -8,10 +8,11 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from api.config import PostgresConnectionProvider, load_database_config
+from api.config import PostgresConnectionProvider, load_api_config, load_database_config
 from api.dependencies import prepare_application_dependencies
 from api.errors.http import register_http_error_handlers
 from api.http.adapter import HttpOperationAdapter
+from api.http.authentication import BasicAuthenticationMiddleware
 from api.middleware.base import CorrelationIdGenerator, IdentityProvider, PermissionChecker
 from api.routes import register_routers
 
@@ -31,6 +32,7 @@ def create_app(
     application.state.identity_provider = identity_provider
     application.state.permission_checker = permission_checker
     application.state.correlation_ids = correlation_ids
+    application.add_middleware(BasicAuthenticationMiddleware)
     register_http_error_handlers(application)
     register_routers(application)
     return application
@@ -44,6 +46,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     readiness_connection = None
     logger.info("api_startup_started")
     try:
+        application.state.api_config = load_api_config()
         logger.info("database_configuration_loading")
         config = load_database_config()
         provider = PostgresConnectionProvider(config)
@@ -95,7 +98,7 @@ def _close_startup_connection(connection: object) -> None:
 def _release_application_resources(application: FastAPI) -> None:
     """Release only application-scoped values; request connections close per operation."""
 
-    for name in ("http_adapter", "dependencies", "db_provider", "db_config"):
+    for name in ("http_adapter", "dependencies", "db_provider", "db_config", "api_config"):
         if hasattr(application.state, name):
             try:
                 delattr(application.state, name)

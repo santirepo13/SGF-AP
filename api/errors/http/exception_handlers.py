@@ -32,7 +32,15 @@ def register_http_error_handlers(app: FastAPI) -> None:
 
 async def application_error_handler(request: Request, error: ApplicationError) -> Response:
     context = _http_context(request)
-    return error_response(ErrorHandler.to_public(error, context))
+    return error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error))
+
+
+def authentication_error_response(request: Request) -> Response:
+    """Build the common HTTP Basic challenge response without exposing credentials."""
+
+    context = _http_context(request)
+    error = ApplicationError.with_code(ErrorCode.API_AUTHENTICATION_REQUIRED, correlation_id=context.correlation_id)
+    return error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error))
 
 
 async def request_validation_error_handler(request: Request, error: RequestValidationError) -> Response:
@@ -92,6 +100,12 @@ def _validation_detail(error: Mapping[str, Any]) -> ErrorDetail:
     field = ".".join(field_parts) or None
     reason = "El dato obligatorio no fue enviado." if _is_missing(error) else "El valor no corresponde con el formato esperado."
     return ErrorDetail(field=field, entity=None, reason=reason)
+
+
+def _headers_for_application_error(error: ApplicationError) -> dict[str, str] | None:
+    if error.code is ErrorCode.API_AUTHENTICATION_REQUIRED:
+        return {"WWW-Authenticate": "Basic"}
+    return None
 
 
 def _allow_header(headers: Any) -> dict[str, str] | None:

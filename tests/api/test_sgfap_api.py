@@ -7,6 +7,7 @@ import asyncio
 import pytest
 from fastapi import FastAPI
 
+from api.config import APIConfig
 from api.config.database import DatabaseConfig
 from api.sgfap_api import create_app, lifespan
 
@@ -66,11 +67,13 @@ def test_lifespan_prepares_dependencies_and_releases_readiness_connection(monkey
     config = DatabaseConfig(host="db.remote", port=5432, name="sgfap", user="api", password="secret")
     application = FastAPI()
 
+    monkeypatch.setattr("api.sgfap_api.load_api_config", lambda: APIConfig(8002, "connector", "secret"))
     monkeypatch.setattr("api.sgfap_api.load_database_config", lambda: config)
     monkeypatch.setattr("api.sgfap_api.PostgresConnectionProvider", lambda configured: provider)
 
     async def exercise_lifespan() -> None:
         async with lifespan(application):
+            assert application.state.api_config == APIConfig(8002, "connector", "secret")
             assert application.state.db_config is config
             assert application.state.db_provider is provider
             assert application.state.dependencies.connection_provider is provider
@@ -79,6 +82,7 @@ def test_lifespan_prepares_dependencies_and_releases_readiness_connection(monkey
 
     asyncio.run(exercise_lifespan())
 
+    assert not hasattr(application.state, "api_config")
     assert not hasattr(application.state, "db_config")
     assert not hasattr(application.state, "db_provider")
     assert not hasattr(application.state, "dependencies")
@@ -91,6 +95,7 @@ def test_lifespan_preserves_startup_cause_and_closes_partially_opened_connection
     config = DatabaseConfig(host="db.remote", port=5432, name="sgfap", user="api", password="secret")
     application = FastAPI()
 
+    monkeypatch.setattr("api.sgfap_api.load_api_config", lambda: APIConfig(8002, "connector", "secret"))
     monkeypatch.setattr("api.sgfap_api.load_database_config", lambda: config)
     monkeypatch.setattr("api.sgfap_api.PostgresConnectionProvider", lambda configured: provider)
 
@@ -103,4 +108,5 @@ def test_lifespan_preserves_startup_cause_and_closes_partially_opened_connection
     asyncio.run(exercise_lifespan())
 
     assert connection.closed == 1
+    assert not hasattr(application.state, "api_config")
     assert not hasattr(application.state, "dependencies")

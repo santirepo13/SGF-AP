@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
-from api.config import PostgresConnectionProvider
+from api.config import APIConfig, PostgresConnectionProvider
 from api.contracts import ActorContext
 from api.http.context import RequestIdentityProvider, bind_request_actor
 from api.interfaces.services import (
@@ -206,6 +206,15 @@ def prepare_application_dependencies(
         trusted_identity_provider,
         correlation_generator,
     )
+
+
+def get_api_config(request: Request) -> APIConfig:
+    """Expose the server's validated HTTP configuration to HTTP collaborators."""
+
+    config = getattr(request.app.state, "api_config", None)
+    if not isinstance(config, APIConfig):
+        raise RuntimeError("API configuration is not initialized")
+    return config
 
 
 def get_operation_dependencies(request: Request) -> Iterator[OperationDependencies]:

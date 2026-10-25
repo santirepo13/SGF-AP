@@ -26,6 +26,7 @@ _DEFINITIONS: dict[ErrorCode, ErrorDefinition] = {
     ErrorCode.FORBIDDEN_OPERATION: ErrorDefinition(ErrorCode.FORBIDDEN_OPERATION, "Permisos", "No tiene autorización para realizar esta operación."),
     ErrorCode.INVALID_TICKET_STATE: ErrorDefinition(ErrorCode.INVALID_TICKET_STATE, "Ticket", "La operación no está permitida en el estado actual del ticket."),
     ErrorCode.CATALOG_VALUE_UNAVAILABLE: ErrorDefinition(ErrorCode.CATALOG_VALUE_UNAVAILABLE, "Catálogo", "Un valor de catálogo requerido para la operación no está disponible."),
+    ErrorCode.API_AUTHENTICATION_REQUIRED: ErrorDefinition(ErrorCode.API_AUTHENTICATION_REQUIRED, "Autenticación", "Autenticación de API requerida o credenciales inválidas."),
     ErrorCode.PERSISTENCE_FAILURE: ErrorDefinition(ErrorCode.PERSISTENCE_FAILURE, "Persistencia", "No fue posible completar la operación de persistencia."),
     ErrorCode.UNEXPECTED_ERROR: ErrorDefinition(ErrorCode.UNEXPECTED_ERROR, "Interno", "Ocurrió un error interno inesperado."),
     ErrorCode.HTTP_ROUTE_NOT_FOUND: ErrorDefinition(ErrorCode.HTTP_ROUTE_NOT_FOUND, "HTTP", "La ruta solicitada no existe."),

@@ -9,7 +9,11 @@ from types import SimpleNamespace
 from fastapi import Request
 from starlette.exceptions import HTTPException
 
-from api.errors.http.exception_handlers import application_error_handler, transport_http_exception_handler
+from api.errors.http.exception_handlers import (
+    application_error_handler,
+    authentication_error_response,
+    transport_http_exception_handler,
+)
 from api.errors.http.status_mapping import status_for_error_code
 from api.errors import ApplicationError, ErrorCode
 
@@ -28,6 +32,7 @@ def test_error_status_mapping_covers_application_and_transport_codes() -> None:
     assert status_for_error_code(ErrorCode.INVALID_REFERENCE) == 422
     assert status_for_error_code(ErrorCode.HTTP_ROUTE_NOT_FOUND) == 404
     assert status_for_error_code(ErrorCode.HTTP_METHOD_NOT_ALLOWED) == 405
+    assert status_for_error_code(ErrorCode.API_AUTHENTICATION_REQUIRED) == 401
     assert status_for_error_code("unknown") == 500
 
 
@@ -45,6 +50,19 @@ def test_application_error_handler_returns_safe_envelope_with_request_correlatio
         "message": "Uno o más datos tienen un tipo, formato o valor inválido.",
         "correlation_id": "corr-handler",
         "details": [{"field": "password", "entity": None, "reason": "No permitido"}],
+    }
+
+
+def test_authentication_failure_uses_common_envelope_and_basic_challenge() -> None:
+    response = authentication_error_response(request_for(correlation_id="corr-authentication"))
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Basic"
+    assert payload(response)["error"] == {
+        "code": "AUTH-001",
+        "message": "Autenticación de API requerida o credenciales inválidas.",
+        "correlation_id": "corr-authentication",
+        "details": [],
     }
 
 
