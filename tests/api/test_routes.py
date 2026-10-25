@@ -25,7 +25,7 @@ def test_register_routers_includes_every_domain_group_once() -> None:
         "/crews",
         "/crew-members",
         "/tickets",
-        "/tickets",
+        "/evidences",
         "/tickets",
     ]
     assert [router.tags[0] for router in application.routers] == [

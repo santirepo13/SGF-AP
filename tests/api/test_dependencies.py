@@ -10,6 +10,7 @@ from api.dependencies import (
     ApplicationDependencies,
     ConnectionTransactionCoordinator,
     _safe_log_fields,
+    get_evidence_service,
     get_ticket_service,
     prepare_application_dependencies,
 )
@@ -49,10 +50,16 @@ class FakeConnectionProvider:
         return ConnectionScope()
 
 
-def test_get_ticket_service_returns_the_request_scoped_ticket_service() -> None:
-    service = object()
+def test_request_scoped_ticket_and_evidence_service_dependencies() -> None:
+    ticket_service = object()
+    evidence_service = object()
+    operation_dependencies = SimpleNamespace(
+        ticket_service=ticket_service,
+        evidence_service=evidence_service,
+    )
 
-    assert get_ticket_service(SimpleNamespace(ticket_service=service)) is service
+    assert get_ticket_service(operation_dependencies) is ticket_service
+    assert get_evidence_service(operation_dependencies) is evidence_service
 
 
 def test_operation_dependencies_share_connection_transaction_and_release_it() -> None:

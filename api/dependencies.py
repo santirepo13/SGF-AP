@@ -258,6 +258,14 @@ def get_ticket_service(
     return operation_dependencies.ticket_service
 
 
+def get_evidence_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> EvidenceServiceInterface:
+    """Provide the request-scoped evidence service to evidence HTTP routes."""
+
+    return operation_dependencies.evidence_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),
