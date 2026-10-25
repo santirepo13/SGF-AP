@@ -11,6 +11,7 @@ from api.dependencies import (
     ConnectionTransactionCoordinator,
     _safe_log_fields,
     get_evidence_service,
+    get_history_service,
     get_ticket_service,
     prepare_application_dependencies,
 )
@@ -50,16 +51,19 @@ class FakeConnectionProvider:
         return ConnectionScope()
 
 
-def test_request_scoped_ticket_and_evidence_service_dependencies() -> None:
+def test_request_scoped_ticket_evidence_and_history_service_dependencies() -> None:
     ticket_service = object()
     evidence_service = object()
+    history_service = object()
     operation_dependencies = SimpleNamespace(
         ticket_service=ticket_service,
         evidence_service=evidence_service,
+        history_service=history_service,
     )
 
     assert get_ticket_service(operation_dependencies) is ticket_service
     assert get_evidence_service(operation_dependencies) is evidence_service
+    assert get_history_service(operation_dependencies) is history_service
 
 
 def test_operation_dependencies_share_connection_transaction_and_release_it() -> None:

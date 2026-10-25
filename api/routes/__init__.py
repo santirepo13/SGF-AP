@@ -4,8 +4,7 @@ from fastapi import FastAPI
 
 from .address import address_router
 from .geolocation import catalog_router
-from .tickets import evidence_router, ticket_router
-from .tickets.history_routes import router as history_router
+from .tickets import evidence_router, history_router, ticket_router
 from .users import crew_member_router, crew_router, user_router
 
 

@@ -266,6 +266,14 @@ def get_evidence_service(
     return operation_dependencies.evidence_service
 
 
+def get_history_service(
+    operation_dependencies: Annotated[OperationDependencies, Depends(get_operation_dependencies)],
+) -> HistoryServiceInterface:
+    """Provide the request-scoped history service to history HTTP routes."""
+
+    return operation_dependencies.history_service
+
+
 def _build_repositories(connection: Any) -> RepositorySet:
     return RepositorySet(
         municipalities=MunicipalityRepository(connection),
