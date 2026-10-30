@@ -17,6 +17,7 @@ from .design_tokens import ALLOWED_TEXT_PAIRS, COLORS, ColorToken, INTERACTION_M
 from .http_connector import LoginHttpConnector, RegistrationHttpConnector, build_login_connector, build_registration_connector
 from .login import LoginAttempt, LoginConnector, LoginController, LoginFormState, LoginOutput, LoginState, LoginStatus
 from .navigation import NavigationController, PROTECTED_SCREENS, ROLE_DESTINATIONS, ScreenName
+from .password_recovery import PasswordRecoveryController, PasswordRecoveryState, RecoveryStep
 from .registration import (
     RegistrationAttempt,
     RegistrationConnector,
@@ -66,6 +67,8 @@ __all__ = [
     "LoginStatus",
     "MemoryAccessStorage",
     "NavigationController",
+    "PasswordRecoveryController",
+    "PasswordRecoveryState",
     "PROTECTED_SCREENS",
     "ROLE_DESTINATIONS",
     "RegistrationAttempt",
@@ -76,6 +79,7 @@ __all__ = [
     "RegistrationState",
     "RegistrationStatus",
     "RegistrationTransport",
+    "RecoveryStep",
     "SecureAccessStorage",
     "StoredAccess",
     "SUPPORTED_ROLE_NAMES",

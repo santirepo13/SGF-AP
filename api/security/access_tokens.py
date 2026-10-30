@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # pragma: no cover - only applicable to an uninstal
 _TOKEN_ISSUER = "sgf-ap"
 _TOKEN_AUDIENCE = "sgf-ap-api"
 _TOKEN_USE = "access"
-_REQUIRED_CLAIMS = ("sub", "iat", "exp", "jti", "iss", "aud", "token_use")
+_REQUIRED_CLAIMS = ("sub", "iat", "exp", "jti", "iss", "aud", "token_use", "ver")
 
 
 class AccessTokenProvider:
@@ -46,11 +46,13 @@ class AccessTokenProvider:
         self._ttl_seconds = config.ttl_seconds
         self._clock = clock or _utc_now
 
-    def issue(self, user_id: int) -> IssuedAccessToken:
-        """Return a newly signed credential for a server-verified positive user ID."""
+    def issue(self, user_id: int, auth_version: int = 1) -> IssuedAccessToken:
+        """Return a newly signed credential for a server-verified account revision."""
 
         if type(user_id) is not int or user_id <= 0:
             raise ApplicationError.unexpected(cause=ValueError("user_id must be a positive integer"))
+        if type(auth_version) is not int or auth_version <= 0:
+            raise ApplicationError.unexpected(cause=ValueError("auth_version must be a positive integer"))
         try:
             issued_at = _as_utc(self._clock())
             issued_seconds = int(issued_at.timestamp())
@@ -63,6 +65,7 @@ class AccessTokenProvider:
                 "iss": _TOKEN_ISSUER,
                 "aud": _TOKEN_AUDIENCE,
                 "token_use": _TOKEN_USE,
+                "ver": auth_version,
             }
             encoded = jwt.encode(payload, self._secret, algorithm="HS256")
             token = encoded.decode("utf-8") if isinstance(encoded, bytes) else encoded
@@ -132,6 +135,10 @@ class AccessTokenProvider:
         if type(token_id) is not str or not token_id:
             raise ApplicationError.invalid_access_token()
 
+        auth_version = payload.get("ver")
+        if type(auth_version) is not int or auth_version <= 0:
+            raise ApplicationError.invalid_access_token()
+
         issued_seconds = payload.get("iat")
         expires_seconds = payload.get("exp")
         if type(issued_seconds) is not int or type(expires_seconds) is not int:
@@ -152,6 +159,7 @@ class AccessTokenProvider:
             token_id=token_id,
             issued_at=issued_at,
             expires_at=expires_at,
+            auth_version=auth_version,
         )
 
 

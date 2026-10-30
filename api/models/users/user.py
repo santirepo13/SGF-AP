@@ -12,3 +12,4 @@ class User:
     password_hash: str = field(repr=False)
     role_id: int
     active: bool
+    auth_version: int = 1

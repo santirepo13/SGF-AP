@@ -57,7 +57,13 @@ from api.repositories import (
     UserRepository,
 )
 from api.interfaces.security import AccessTokenProviderInterface
-from api.security import LazyArgon2idPasswordHasher, PasswordHasherInterface, TokenIdentityProvider
+from api.notifications import PasswordRecoveryNotifier
+from api.security import (
+    LazyArgon2idPasswordHasher,
+    PasswordHasherInterface,
+    PasswordRecoveryStore,
+    TokenIdentityProvider,
+)
 from api.services import (
     AddressService,
     CatalogService,
@@ -190,6 +196,9 @@ class ApplicationDependencies:
         correlation_ids: CorrelationIdGenerator,
         password_hasher: PasswordHasherInterface | None = None,
         access_token_provider: AccessTokenProviderInterface | None = None,
+        password_recovery_store: PasswordRecoveryStore | None = None,
+        password_recovery_notifier: PasswordRecoveryNotifier | None = None,
+        password_recovery_code_ttl_seconds: int = 600,
     ) -> None:
         self.connection_provider = connection_provider
         self.pipeline = pipeline
@@ -197,6 +206,9 @@ class ApplicationDependencies:
         self.correlation_ids = correlation_ids
         self.password_hasher = password_hasher
         self.access_token_provider = access_token_provider
+        self.password_recovery_store = password_recovery_store
+        self.password_recovery_notifier = password_recovery_notifier
+        self.password_recovery_code_ttl_seconds = password_recovery_code_ttl_seconds
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
@@ -235,6 +247,9 @@ class ApplicationDependencies:
                 self.pipeline,
                 self.password_hasher,
                 self.access_token_provider,
+                self.password_recovery_store,
+                self.password_recovery_notifier,
+                self.password_recovery_code_ttl_seconds,
             )
 
 
@@ -246,6 +261,9 @@ def prepare_application_dependencies(
     correlation_ids: CorrelationIdGenerator | None = None,
     password_hasher: PasswordHasherInterface | None = None,
     access_token_provider: AccessTokenProviderInterface | None = None,
+    password_recovery_store: PasswordRecoveryStore | None = None,
+    password_recovery_notifier: PasswordRecoveryNotifier | None = None,
+    password_recovery_code_ttl_seconds: int = 600,
 ) -> ApplicationDependencies:
     """Create application-shared collaborators and request-scoped service factories."""
 
@@ -270,6 +288,9 @@ def prepare_application_dependencies(
         correlation_generator,
         password_hasher or LazyArgon2idPasswordHasher(),
         access_token_provider,
+        password_recovery_store,
+        password_recovery_notifier,
+        password_recovery_code_ttl_seconds,
     )
 
 
@@ -386,6 +407,9 @@ def _build_operation_dependencies(
     pipeline: MiddlewarePipeline,
     password_hasher: PasswordHasherInterface | None = None,
     access_token_provider: AccessTokenProviderInterface | None = None,
+    password_recovery_store: PasswordRecoveryStore | None = None,
+    password_recovery_notifier: PasswordRecoveryNotifier | None = None,
+    password_recovery_code_ttl_seconds: int = 600,
 ) -> OperationDependencies:
     effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
     return OperationDependencies(
@@ -425,6 +449,9 @@ def _build_operation_dependencies(
             roles=repositories.roles,
             password_hasher=effective_password_hasher,
             access_token_provider=access_token_provider,
+            password_recovery_store=password_recovery_store,
+            password_recovery_notifier=password_recovery_notifier,
+            password_recovery_code_ttl_seconds=password_recovery_code_ttl_seconds,
             transaction=transaction,
         ),
         password_hasher=effective_password_hasher,

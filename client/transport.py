@@ -97,6 +97,28 @@ class RegistrationTransport:
 
         return self._request("GET", "/users/me", access_token=access_token)
 
+    def request_password_recovery(self, *, email: str) -> ConnectorResponse:
+        return self.post_json("/users/password-recovery/request", {"email": email})
+
+    def verify_password_recovery(self, *, request_id: str, code: str) -> ConnectorResponse:
+        return self.post_json("/users/password-recovery/verify", {"request_id": request_id, "code": code})
+
+    def complete_password_recovery(
+        self,
+        *,
+        reset_token: str,
+        new_password: str,
+        password_confirmation: str,
+    ) -> ConnectorResponse:
+        return self.post_json(
+            "/users/password-recovery/complete",
+            {
+                "reset_token": reset_token,
+                "new_password": new_password,
+                "password_confirmation": password_confirmation,
+            },
+        )
+
     get_current_user = current_user
 
     def post_json(

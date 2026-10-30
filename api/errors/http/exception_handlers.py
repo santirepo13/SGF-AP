@@ -20,7 +20,13 @@ from api.http.responses import error_response
 logger = logging.getLogger("sgf_ap.api")
 
 
-_LOGIN_PATH = "/users/login"
+_NO_STORE_PATHS = frozenset({
+    "/users/login",
+    "/users/me",
+    "/users/password-recovery/request",
+    "/users/password-recovery/verify",
+    "/users/password-recovery/complete",
+})
 
 
 def register_http_error_handlers(app: FastAPI) -> None:
@@ -102,7 +108,7 @@ def _http_context(request: Request) -> ExecutionContext:
 
 
 def _with_cache_policy(request: Request, response: Response) -> Response:
-    if request.url.path == _LOGIN_PATH:
+    if request.url.path in _NO_STORE_PATHS:
         response.headers["Cache-Control"] = "no-store"
     return response
 

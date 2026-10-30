@@ -11,6 +11,7 @@ from api.contracts import (
     TicketAssignmentInput, TicketAttentionInput, TicketClosureReviewInput,
     TicketCreateInput, TicketOperationInput, UserActivationInput,
     UserCreateInput, UserLoginInput, UserUpdateInput,
+    PasswordRecoveryRequestInput, PasswordRecoveryVerifyInput, PasswordResetInput,
 )
 
 
@@ -43,6 +44,9 @@ def _policies() -> dict[str, OperationPolicy]:
         "UserService.list_by_filters": public,
         "UserService.register_citizen": OperationPolicy(actor_required=False, permission=None, input_types=(CitizenRegistrationInput,), resolve_actor=False),
         "UserService.login": OperationPolicy(actor_required=False, permission=None, input_types=(UserLoginInput,), resolve_actor=False),
+        "UserService.request_password_recovery": OperationPolicy(actor_required=False, permission=None, input_types=(PasswordRecoveryRequestInput,), resolve_actor=False),
+        "UserService.verify_password_recovery": OperationPolicy(actor_required=False, permission=None, input_types=(PasswordRecoveryVerifyInput,), resolve_actor=False),
+        "UserService.complete_password_recovery": OperationPolicy(actor_required=False, permission=None, input_types=(PasswordResetInput,), resolve_actor=False),
         "UserService.get_current_user": OperationPolicy(actor_required=True, permission=None),
         "UserService.create": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserCreateInput,)),
         "UserService.update": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserUpdateInput,)),

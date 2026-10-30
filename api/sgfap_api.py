@@ -15,7 +15,8 @@ from api.errors.http import register_http_error_handlers
 from api.http.adapter import HttpOperationAdapter
 from api.http.authentication import BasicAuthenticationMiddleware
 from api.middleware.base import CorrelationIdGenerator, IdentityProvider, PermissionChecker
-from api.security import AccessTokenProvider
+from api.security import AccessTokenProvider, PasswordRecoveryStore
+from api.notifications import ResendPasswordRecoveryNotifier
 from api.routes import register_routers
 
 logger = logging.getLogger("sgf_ap.api")
@@ -77,6 +78,22 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             if getattr(application.state, "permission_checker", None) is None:
                 application.state.permission_checker = ConfiguredPermissionChecker(application.state.api_config)
         access_token_provider = AccessTokenProvider(application.state.api_config.access_token)
+        recovery_config = application.state.api_config.password_recovery
+        password_recovery_store = None
+        password_recovery_notifier = None
+        if recovery_config is not None and recovery_config.enabled:
+            password_recovery_store = PasswordRecoveryStore(
+                recovery_config.proof_secret,
+                code_ttl_seconds=recovery_config.code_ttl_seconds,
+                grant_ttl_seconds=recovery_config.grant_ttl_seconds,
+                max_verify_attempts=recovery_config.max_verify_attempts,
+                resend_wait_seconds=recovery_config.resend_wait_seconds,
+            )
+            password_recovery_notifier = ResendPasswordRecoveryNotifier(
+                api_key=recovery_config.resend_api_key or "",
+                from_email=recovery_config.resend_from_email or "",
+                timeout_seconds=recovery_config.resend_timeout_seconds,
+            )
         logger.info("database_configuration_loading")
         config = load_database_config()
         provider = PostgresConnectionProvider(config)
@@ -98,6 +115,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             permission_checker=getattr(application.state, "permission_checker", None),
             correlation_ids=getattr(application.state, "correlation_ids", None),
             access_token_provider=access_token_provider,
+            password_recovery_store=password_recovery_store,
+            password_recovery_notifier=password_recovery_notifier,
+            password_recovery_code_ttl_seconds=(recovery_config.code_ttl_seconds if recovery_config is not None else 600),
         )
         application.state.http_adapter = HttpOperationAdapter()
         logger.info("application_dependencies_prepared")

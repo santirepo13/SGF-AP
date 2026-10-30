@@ -53,6 +53,14 @@ from .tickets.ticket_types import (
     TicketOutput,
 )
 from .users.access_token_types import IssuedAccessToken, ValidatedAccessToken
+from .users.password_recovery_types import (
+    PasswordRecoveryRequestInput,
+    PasswordRecoveryRequestOutput,
+    PasswordRecoveryVerifyInput,
+    PasswordRecoveryVerifyOutput,
+    PasswordResetInput,
+    PasswordResetOutput,
+)
 from .users.user_types import (
     CitizenRegistrationInput,
     UserActivationInput,
@@ -132,6 +140,12 @@ __all__ = [
     "UserCreateInput",
     "UserLoginInput",
     "UserLoginOutput",
+    "PasswordRecoveryRequestInput",
+    "PasswordRecoveryRequestOutput",
+    "PasswordRecoveryVerifyInput",
+    "PasswordRecoveryVerifyOutput",
+    "PasswordResetInput",
+    "PasswordResetOutput",
     "IssuedAccessToken",
     "ValidatedAccessToken",
     "UserOutput",
