@@ -46,6 +46,11 @@ class RegistrationHttpConnector:
     def login(self, *, email: str, password: str) -> ConnectorResponse:
         return self._connector.login(email=email, password=password)
 
+    def current_user(self, *, access_token: str) -> ConnectorResponse:
+        return self._connector.current_user(access_token=access_token)
+
+    get_current_user = current_user
+
     def post_json(
         self,
         path: str,
