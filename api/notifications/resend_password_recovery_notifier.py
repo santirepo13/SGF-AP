@@ -18,6 +18,10 @@ class PasswordRecoveryNotifier(Protocol):
 class ResendNotificationError(RuntimeError):
     """Provider failure without request bodies, email addresses, or secrets."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class ResendPasswordRecoveryNotifier:
     def __init__(self, *, api_key: str, from_email: str, timeout_seconds: int = 10) -> None:
@@ -76,7 +80,9 @@ class ResendPasswordRecoveryNotifier:
             with urlopen(request, timeout=self._timeout_seconds) as response:
                 if not 200 <= response.status < 300:
                     raise ResendNotificationError("email provider rejected the request")
-        except (HTTPError, URLError, OSError, TimeoutError) as error:
+        except HTTPError as error:
+            raise ResendNotificationError("email provider rejected the request", status_code=error.code) from error
+        except (URLError, OSError, TimeoutError) as error:
             raise ResendNotificationError("email provider is unavailable") from error
 
 

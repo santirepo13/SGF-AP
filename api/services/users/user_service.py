@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from api.contracts import (
@@ -45,6 +46,8 @@ from .password_recovery_validation import (
 )
 from .registration_validation import validate_registration
 from .user_validation import validate_login
+
+logger = logging.getLogger("sgf_ap.api")
 
 
 class UserService(ServiceBase):
@@ -204,10 +207,12 @@ class UserService(ServiceBase):
                         code=code,
                         expires_in_minutes=max(1, self.password_recovery_code_ttl_seconds // 60),
                     )
-                except ResendNotificationError:
-                    # Keep the public answer uniform. A later request can create
-                    # a fresh proof after the configured wait.
-                    pass
+                except ResendNotificationError as error:
+                    logger.warning(
+                        "password_recovery_delivery_failed status=%s correlation_id=%s",
+                        error.status_code if error.status_code is not None else "unavailable",
+                        context.correlation_id,
+                    )
             return PasswordRecoveryRequestOutput(
                 request_id=challenge.request_id,
                 message="Si el correo corresponde a una cuenta, recibirás un código para introducir en la aplicación.",
