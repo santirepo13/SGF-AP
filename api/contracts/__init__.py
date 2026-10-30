@@ -52,7 +52,7 @@ from .tickets.ticket_types import (
     TicketOperationInput,
     TicketOutput,
 )
-from .users.user_types import UserActivationInput, UserCreateInput, UserFilters, UserOutput, UserUpdateInput
+from .users.user_types import CitizenRegistrationInput, UserActivationInput, UserCreateInput, UserFilters, UserOutput, UserUpdateInput
 
 __all__ = [
     "UNSET",
@@ -118,6 +118,7 @@ __all__ = [
     "TicketOperationInput",
     "TicketOutput",
     "UserActivationInput",
+    "CitizenRegistrationInput",
     "UserCreateInput",
     "UserOutput",
     "UserUpdateInput",

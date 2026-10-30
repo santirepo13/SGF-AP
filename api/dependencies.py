@@ -56,6 +56,7 @@ from api.repositories import (
     TicketRepository,
     UserRepository,
 )
+from api.security import LazyArgon2idPasswordHasher, PasswordHasherInterface
 from api.services import (
     AddressService,
     CatalogService,
@@ -94,6 +95,30 @@ class DenyPermissionChecker:
 
     def is_allowed(self, actor, permission: str, operation: str) -> bool:
         return False
+
+
+class ConfiguredIdentityProvider:
+    """Resolve the separately configured trusted actor for one server deployment."""
+
+    def __init__(self, config: APIConfig) -> None:
+        if config.actor is None:
+            raise ValueError("configured actor is required")
+        self._actor = ActorContext(config.actor.user_id, config.actor.role_id, config.actor.active)
+
+    def resolve(self) -> ActorContext:
+        return self._actor
+
+
+class ConfiguredPermissionChecker:
+    """Allow only the permissions explicitly configured for the trusted actor."""
+
+    def __init__(self, config: APIConfig) -> None:
+        if config.actor is None:
+            raise ValueError("configured actor is required")
+        self._permissions = config.actor.permissions
+
+    def is_allowed(self, actor, permission: str, operation: str) -> bool:
+        return "*" in self._permissions or permission in self._permissions
 
 
 class StructuredExecutionLogger:
@@ -147,6 +172,7 @@ class OperationDependencies:
     ticket_service: TicketServiceInterface
     evidence_service: EvidenceServiceInterface
     history_service: HistoryServiceInterface
+    password_hasher: PasswordHasherInterface | None = None
 
 
 class ApplicationDependencies:
@@ -158,11 +184,13 @@ class ApplicationDependencies:
         pipeline: MiddlewarePipeline,
         identity_provider: IdentityProvider,
         correlation_ids: CorrelationIdGenerator,
+        password_hasher: PasswordHasherInterface | None = None,
     ) -> None:
         self.connection_provider = connection_provider
         self.pipeline = pipeline
         self.identity_provider = identity_provider
         self.correlation_ids = correlation_ids
+        self.password_hasher = password_hasher
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
@@ -174,7 +202,7 @@ class ApplicationDependencies:
         with self.connection_provider.connection() as connection:
             repositories = _build_repositories(connection)
             transaction = ConnectionTransactionCoordinator(connection)
-            yield _build_operation_dependencies(repositories, transaction, self.pipeline)
+            yield _build_operation_dependencies(repositories, transaction, self.pipeline, self.password_hasher)
 
 
 def prepare_application_dependencies(
@@ -183,6 +211,7 @@ def prepare_application_dependencies(
     identity_provider: IdentityProvider | None = None,
     permission_checker: PermissionChecker | None = None,
     correlation_ids: CorrelationIdGenerator | None = None,
+    password_hasher: PasswordHasherInterface | None = None,
 ) -> ApplicationDependencies:
     """Create application-shared collaborators and request-scoped service factories."""
 
@@ -205,6 +234,7 @@ def prepare_application_dependencies(
         pipeline,
         trusted_identity_provider,
         correlation_generator,
+        password_hasher or LazyArgon2idPasswordHasher(),
     )
 
 
@@ -314,7 +344,9 @@ def _build_operation_dependencies(
     repositories: RepositorySet,
     transaction: ConnectionTransactionCoordinator,
     pipeline: MiddlewarePipeline,
+    password_hasher: PasswordHasherInterface | None = None,
 ) -> OperationDependencies:
+    effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
     return OperationDependencies(
         pipeline=pipeline,
         catalog_service=CatalogService(
@@ -350,8 +382,10 @@ def _build_operation_dependencies(
         user_service=UserService(
             users=repositories.users,
             roles=repositories.roles,
+            password_hasher=effective_password_hasher,
             transaction=transaction,
         ),
+        password_hasher=effective_password_hasher,
         crew_service=CrewService(
             crews=repositories.crews,
             members=repositories.crew_members,

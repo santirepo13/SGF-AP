@@ -11,12 +11,23 @@ from api.errors import ApplicationError
 
 
 @dataclass(frozen=True, slots=True)
+class ActorConfig:
+    """Server-owned SGF-AP actor kept separate from HTTP Basic credentials."""
+
+    user_id: int
+    role_id: int
+    active: bool
+    permissions: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class APIConfig:
-    """Server port and credentials used to protect the HTTP API."""
+    """Server port, HTTP Basic credentials, and optional trusted actor settings."""
 
     port: int
     user: str
     password: str = field(repr=False)
+    actor: ActorConfig | None = None
 
 
 def load_api_config(
@@ -48,7 +59,42 @@ def load_api_config(
     if not 1 <= port <= 65535:
         raise ApplicationError.invalid_value("API_PORT", "El puerto de la API debe estar entre 1 y 65535.")
 
-    return APIConfig(port=port, user=user, password=password)
+    return APIConfig(port=port, user=user, password=password, actor=_load_actor_config(values))
+
+
+def _load_actor_config(values: Mapping[str, str]) -> ActorConfig | None:
+    """Load an optional server-side actor without deriving it from API credentials."""
+
+    names = (
+        "SGFAP_ACTOR_USER_ID",
+        "SGFAP_ACTOR_ROLE_ID",
+        "SGFAP_ACTOR_ACTIVE",
+        "SGFAP_ACTOR_PERMISSIONS",
+    )
+    if not any(name in values for name in names):
+        return None
+
+    user_id_value = values.get("SGFAP_ACTOR_USER_ID", "").strip()
+    role_id_value = values.get("SGFAP_ACTOR_ROLE_ID", "").strip()
+    active_value = values.get("SGFAP_ACTOR_ACTIVE", "").strip().lower()
+    permissions_value = values.get("SGFAP_ACTOR_PERMISSIONS", "")
+    if not user_id_value:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_USER_ID", "El identificador del actor es obligatorio.")
+    if not role_id_value:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_ROLE_ID", "El rol del actor es obligatorio.")
+    if active_value not in {"true", "false"}:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_ACTIVE", "El estado del actor debe ser true o false.")
+    permissions = frozenset(permission.strip() for permission in permissions_value.split(",") if permission.strip())
+    if not permissions:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_PERMISSIONS", "Debe configurarse al menos un permiso del actor.")
+    try:
+        user_id = int(user_id_value)
+        role_id = int(role_id_value)
+    except ValueError as exc:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_USER_ID", "Los identificadores del actor y su rol deben ser enteros.", cause=exc) from exc
+    if user_id <= 0 or role_id <= 0:
+        raise ApplicationError.invalid_value("SGFAP_ACTOR_USER_ID", "Los identificadores del actor y su rol deben ser positivos.")
+    return ActorConfig(user_id=user_id, role_id=role_id, active=active_value == "true", permissions=permissions)
 
 
 def _load_dotenv(env_file: str | Path, values: dict[str, str]) -> None:

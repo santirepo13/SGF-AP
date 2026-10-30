@@ -85,7 +85,7 @@ _DIRECT_EXPLANATIONS = {
     "test_every_repository_implementation_matches_its_interface_methods": "Every repository exposes the methods and argument names promised by its interface.",
     "test_service_implementations_match_their_service_interfaces": "Every service matches its interface's methods, arguments, defaults, and return types.",
     "test_repository_inventory_contains_22_interfaces_and_70_methods": "The repository inventory includes every expected interface and operation.",
-    "test_service_inventory_contains_7_interfaces_and_55_methods": "The service inventory includes every expected interface and operation.",
+    "test_service_inventory_contains_7_interfaces_and_56_methods": "The service inventory includes every expected interface and operation.",
     "test_case_registry_rejects_duplicate_ids_and_preserves_traceability": "The case registry keeps each case linked to its test file and rejects repeated identifiers.",
     "test_pipeline_sets_correlation_invokes_service_once_and_logs_result": "A valid request receives a tracking reference, calls the service once, and records its successful completion.",
     "test_invalid_input_stops_before_service": "Invalid request data is rejected before the service is called.",

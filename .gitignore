@@ -203,7 +203,8 @@ cython_debug/
 #   could uncomment the following to ignore the entire vscode folder
 # .vscode/
 # Temporary file for partial code execution
-tempCodeRunnerFile.py
+client/packaged_config.py
+android/generated/
 
 # Ruff stuff:
 .ruff_cache/

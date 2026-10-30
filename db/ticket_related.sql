@@ -29,6 +29,16 @@ CREATE TABLE statuses (
     ))
 );
 
+INSERT INTO statuses (name) VALUES
+    ('Registered'),
+    ('Validated'),
+    ('Prioritized'),
+    ('Assigned'),
+    ('InProgress'),
+    ('Blocked'),
+    ('PendingClosure'),
+    ('Resolved');
+
 
 CREATE TABLE actions (
     id SERIAL PRIMARY KEY,
@@ -37,6 +47,17 @@ CREATE TABLE actions (
         'Blockage','ClosureRequest','Approval','Rejection'
     ))
 );
+
+INSERT INTO actions (name) VALUES
+    ('Registration'),
+    ('Validation'),
+    ('Prioritization'),
+    ('Assignment'),
+    ('Attention'),
+    ('Blockage'),
+    ('ClosureRequest'),
+    ('Approval'),
+    ('Rejection');
 
 CREATE TABLE tickets (
     id SERIAL PRIMARY KEY,

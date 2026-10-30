@@ -7,9 +7,10 @@ import logging
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 
 from api.config import PostgresConnectionProvider, load_api_config, load_database_config
-from api.dependencies import prepare_application_dependencies
+from api.dependencies import ConfiguredIdentityProvider, ConfiguredPermissionChecker, prepare_application_dependencies
 from api.errors.http import register_http_error_handlers
 from api.http.adapter import HttpOperationAdapter
 from api.http.authentication import BasicAuthenticationMiddleware
@@ -33,9 +34,32 @@ def create_app(
     application.state.permission_checker = permission_checker
     application.state.correlation_ids = correlation_ids
     application.add_middleware(BasicAuthenticationMiddleware)
+    _configure_openapi_security(application)
     register_http_error_handlers(application)
     register_routers(application)
     return application
+
+
+def _configure_openapi_security(application: FastAPI) -> None:
+    """Declare the server-side HTTP Basic scheme used by protected routes."""
+
+    def openapi_schema():
+        if application.openapi_schema:
+            return application.openapi_schema
+        schema = get_openapi(
+            title=application.title,
+            version=getattr(application, "version", "0.1.0"),
+            description=application.description,
+            routes=application.routes,
+            tags=application.openapi_tags,
+        )
+        components = schema.setdefault("components", {})
+        schemes = components.setdefault("securitySchemes", {})
+        schemes.setdefault("HTTPBasic", {"type": "http", "scheme": "basic"})
+        application.openapi_schema = schema
+        return schema
+
+    application.openapi = openapi_schema  # type: ignore[method-assign]
 
 
 @asynccontextmanager
@@ -47,6 +71,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     logger.info("api_startup_started")
     try:
         application.state.api_config = load_api_config()
+        if application.state.api_config.actor is not None:
+            if getattr(application.state, "identity_provider", None) is None:
+                application.state.identity_provider = ConfiguredIdentityProvider(application.state.api_config)
+            if getattr(application.state, "permission_checker", None) is None:
+                application.state.permission_checker = ConfiguredPermissionChecker(application.state.api_config)
         logger.info("database_configuration_loading")
         config = load_database_config()
         provider = PostgresConnectionProvider(config)

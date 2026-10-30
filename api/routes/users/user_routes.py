@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.contracts import (
+    CitizenRegistrationInput,
     Unset,
     UserActivationInput,
     UserCreateInput,
@@ -27,6 +28,7 @@ from api.http import (
     read_json_contract,
 )
 from api.interfaces.services import UserServiceInterface
+from api.errors import ApplicationError
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -37,6 +39,7 @@ CorrelationIdDependency = Annotated[str, Depends(get_request_correlation_id)]
 _GET_BY_ID = HttpOperation("UserService", "get_by_id")
 _GET_BY_EMAIL = HttpOperation("UserService", "get_by_email")
 _LIST_BY_FILTERS = HttpOperation("UserService", "list_by_filters")
+_REGISTER = HttpOperation("UserService", "register_citizen", success_status=201)
 _CREATE = HttpOperation("UserService", "create", success_status=201)
 _UPDATE = HttpOperation("UserService", "update")
 _SET_ACTIVE = HttpOperation("UserService", "set_active")
@@ -79,6 +82,7 @@ def _user_responses(
             },
         },
         400: _error_response("Falta un dato obligatorio o un valor tiene formato inválido."),
+        401: _error_response("Las credenciales técnicas de la API son obligatorias o incorrectas."),
         403: _error_response("El actor está inactivo, no fue suministrado o no tiene permiso."),
         404: _error_response("El usuario o la ruta solicitada no existe."),
         405: _error_response("El método HTTP no está permitido para esta ruta."),
@@ -161,7 +165,19 @@ def _value_schema(annotation: object) -> dict[str, object]:
 
 
 _USER_OUTPUT_SCHEMA = _contract_schema(UserOutput)
+_CITIZEN_REGISTRATION_SCHEMA = {
+    "type": "object",
+    "required": ["first_name", "last_name", "email", "password"],
+    "additionalProperties": False,
+    "properties": {
+        "first_name": {"type": "string"},
+        "last_name": {"type": "string"},
+        "email": {"type": "string", "format": "email"},
+        "password": {"type": "string", "format": "password", "writeOnly": True},
+    },
+}
 _USER_CREATE_SCHEMA = _contract_schema(UserCreateInput)
+
 _USER_UPDATE_SCHEMA = _contract_schema(UserUpdateInput, excluded_fields=frozenset({"user_id"}))
 _USER_ACTIVATION_SCHEMA = _contract_schema(UserActivationInput, excluded_fields=frozenset({"user_id"}))
 
@@ -181,6 +197,48 @@ def get_by_email(
     adapter: HttpAdapterDependency,
 ) -> JSONResponse:
     return _execute(request, adapter, user_service, _GET_BY_EMAIL, email)
+
+
+@router.post(
+    "/register",
+    status_code=201,
+    response_class=JSONResponse,
+    responses=_user_responses(_USER_OUTPUT_SCHEMA, success_status=201),
+    summary="Registrar una cuenta ciudadana",
+    description=(
+        "Crea una cuenta ciudadana activa. Requiere autenticación técnica "
+        "HTTP Basic, pero no una sesión de usuario."
+    ),
+    openapi_extra={
+        "security": [{"HTTPBasic": []}],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": _CITIZEN_REGISTRATION_SCHEMA}},
+        }
+    },
+)
+async def register_citizen(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    headers = getattr(request, "headers", None)
+    content_type = ""
+    if headers is not None:
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if headers is not None and content_type != "application/json":
+        raise ApplicationError.invalid_value(
+            None,
+            "El encabezado Content-Type debe ser application/json.",
+            correlation_id=correlation_id,
+        )
+    data = await read_json_contract(
+        request,
+        CitizenRegistrationInput,
+        correlation_id=correlation_id,
+    )
+    return _execute(request, adapter, user_service, _REGISTER, data)
 
 
 @router.get(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from api.config import APIConfig, load_api_config
+from api.config import APIConfig, ActorConfig, load_api_config
 from api.errors import ApplicationError, ErrorCode
 from config import ConnectorConfig, load_connector_config
 
@@ -75,6 +75,24 @@ def test_api_config_loads_and_prioritizes_environment_without_exposing_password(
 
     assert config == APIConfig(port=9000, user="environment-user", password="api-secret")
     assert "api-secret" not in repr(config)
+
+
+def test_api_config_loads_a_business_actor_separate_from_basic_credentials() -> None:
+    config = load_api_config(
+        "does-not-exist.env",
+        environ={
+            "API_PORT": "8002",
+            "API_USER": "http-user",
+            "API_PASSWORD": "http-password",
+            "SGFAP_ACTOR_USER_ID": "15",
+            "SGFAP_ACTOR_ROLE_ID": "5",
+            "SGFAP_ACTOR_ACTIVE": "true",
+            "SGFAP_ACTOR_PERMISSIONS": "create_address, manage_users, *",
+        },
+    )
+
+    assert config.user == "http-user"
+    assert config.actor == ActorConfig(15, 5, True, frozenset({"create_address", "manage_users", "*"}))
 
 
 @pytest.mark.parametrize(
