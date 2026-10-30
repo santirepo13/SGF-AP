@@ -94,6 +94,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
                 from_email=recovery_config.resend_from_email or "",
                 timeout_seconds=recovery_config.resend_timeout_seconds,
             )
+            logger.info("password_recovery_provider_enabled sender=%s", recovery_config.resend_from_email)
         logger.info("database_configuration_loading")
         config = load_database_config()
         provider = PostgresConnectionProvider(config)
