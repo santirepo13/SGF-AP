@@ -43,6 +43,7 @@ _GET_BY_EMAIL = HttpOperation("UserService", "get_by_email")
 _LIST_BY_FILTERS = HttpOperation("UserService", "list_by_filters")
 _REGISTER = HttpOperation("UserService", "register_citizen", success_status=201)
 _LOGIN = HttpOperation("UserService", "login", no_store=True)
+_CURRENT_USER = HttpOperation("UserService", "get_current_user", no_store=True)
 _CREATE = HttpOperation("UserService", "create", success_status=201)
 _UPDATE = HttpOperation("UserService", "update")
 _SET_ACTIVE = HttpOperation("UserService", "set_active")
@@ -100,6 +101,14 @@ def _login_responses() -> dict[int, dict[str, object]]:
     responses[200]["description"] = "Ingreso confirmado y credencial de acceso emitida."
     responses[401] = _error_response("Las credenciales técnicas o las credenciales de ingreso no son válidas.")
     responses[403] = _error_response("La cuenta existe pero no se encuentra habilitada.")
+    return responses
+
+
+def _current_user_responses() -> dict[int, dict[str, object]]:
+    responses = _user_responses(_LOGIN_USER_SCHEMA)
+    responses[200]["description"] = "Cuenta autenticada vigente."
+    responses[401] = _error_response("La credencial de acceso es obligatoria, inválida o venció.")
+    responses[403] = _error_response("La cuenta no se encuentra habilitada.")
     return responses
 
 
@@ -320,6 +329,23 @@ async def login(
     # Persistence and Argon2 verification are synchronous and run away from
     # FastAPI's event loop. The shared adapter still owns pipeline execution.
     return await run_in_threadpool(_execute, request, adapter, user_service, _LOGIN, data)
+
+
+@router.get(
+    "/me",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=_current_user_responses(),
+    summary="Consultar la cuenta autenticada",
+    description="Confirma la cuenta y el rol vigentes sin renovar la credencial de acceso.",
+    openapi_extra={"security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+def get_current_user(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+) -> JSONResponse:
+    return _execute(request, adapter, user_service, _CURRENT_USER)
 
 
 @router.get(

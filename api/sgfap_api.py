@@ -57,6 +57,7 @@ def _configure_openapi_security(application: FastAPI) -> None:
         components = schema.setdefault("components", {})
         schemes = components.setdefault("securitySchemes", {})
         schemes.setdefault("HTTPBasic", {"type": "http", "scheme": "basic"})
+        schemes.setdefault("UserAccessToken", {"type": "apiKey", "in": "header", "name": "User-Access-Token"})
         application.openapi_schema = schema
         return schema
 

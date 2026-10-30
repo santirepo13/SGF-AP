@@ -5,6 +5,7 @@ description = "SGF-AP citizen registration and access client"
 requires-python = ">=3.13,<3.15"
 dependencies = [
     "flet>=0.80",
+    "flet-secure-storage",
     "python-dotenv",
 ]
 

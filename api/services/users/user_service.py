@@ -148,6 +148,29 @@ class UserService(ServiceBase):
 
         return self._execute(context, context.operation, work, actor_required=False)
 
+    def get_current_user(self, context: ExecutionContext) -> OperationResult[UserOutput]:
+        """Return the public account snapshot already resolved for this request."""
+
+        def work() -> UserOutput:
+            actor = context.actor
+            if actor is None:
+                raise ApplicationError.access_token_required(correlation_id=context.correlation_id)
+            if actor.public_user is not None:
+                return actor.public_user
+            # Direct service callers can still provide only an ActorContext;
+            # HTTP requests receive the snapshot from TokenIdentityProvider and
+            # therefore do not query the account or role a second time.
+            user = self.users.get_by_id(actor.user_id)
+            if user is None:
+                raise ApplicationError.invalid_access_token(correlation_id=context.correlation_id)
+            role = self.roles.get_by_id(user.role_id)
+            role_name = role_name_for(role)
+            if role_name is None or getattr(role, "id", None) != user.role_id:
+                raise ApplicationError.catalog_unavailable("role", correlation_id=context.correlation_id)
+            return self._out(user, role_name=role_name)
+
+        return self._execute(context, context.operation, work, actor_required=True)
+
     def create(self, context: ExecutionContext, data: UserCreateInput) -> OperationResult[UserOutput]:
         def work() -> UserOutput:
             if self.roles.get_by_id(data.role_id) is None:

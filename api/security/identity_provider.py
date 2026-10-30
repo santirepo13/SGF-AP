@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api.contracts import ActorContext
+from api.contracts import ActorContext, UserOutput
 from api.enums import RoleName
 from api.errors import ApplicationError
 from api.interfaces.repositories import RoleRepositoryInterface, UserRepositoryInterface
@@ -40,7 +40,20 @@ class TokenIdentityProvider:
         role_name = _role_name(role)
         if role_name is None or getattr(role, "id", None) != user.role_id:
             raise ApplicationError.catalog_unavailable("role", correlation_id=self._correlation_id)
-        return ActorContext(user_id=user.id, role_id=user.role_id, active=user.active)
+        return ActorContext(
+            user_id=user.id,
+            role_id=user.role_id,
+            active=user.active,
+            public_user=UserOutput(
+                id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                role_id=user.role_id,
+                active=user.active,
+                role_name=role_name,
+            ),
+        )
 
 
 def role_name_for(role: object) -> str | None:

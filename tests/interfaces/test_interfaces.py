@@ -56,10 +56,10 @@ def test_repository_inventory_contains_22_interfaces_and_70_methods():
     assert sum(len(public_methods(interface)) for interface, _ in REPOSITORY_PAIRS) == 70
 
 
-def test_service_inventory_contains_7_interfaces_and_57_methods():
+def test_service_inventory_contains_7_interfaces_and_58_methods():
     """Confirm the service catalogue contains every promised operation."""
     assert len(SERVICE_PAIRS) == 7
-    assert sum(len(public_methods(interface)) for interface, _ in SERVICE_PAIRS) == 57
+    assert sum(len(public_methods(interface)) for interface, _ in SERVICE_PAIRS) == 58
 
 
 def test_case_registry_rejects_duplicate_ids_and_preserves_traceability():

@@ -100,6 +100,7 @@ class LoginController:
         self._on_authenticated = on_authenticated
         self._lock = threading.RLock()
         self._attempt_counter = 0
+        self._authenticated_output: LoginOutput | None = None
 
     def set_field(self, field_name: str, value: object) -> LoginFormState:
         """Update one editable field and remove only that field's stale error."""
@@ -208,6 +209,28 @@ class LoginController:
         threading.Thread(target=worker, name="sgfap-login", daemon=True).start()
         return attempt.attempt_id
 
+    def consume_authenticated_output(self) -> LoginOutput | None:
+        """Take one complete accepted output for the UI's next access transition."""
+
+        with self._lock:
+            output = self._authenticated_output
+            self._authenticated_output = None
+            return output
+
+    def show_message(self, message: str) -> LoginFormState:
+        """Show a safe access notice and leave the form ready for another login."""
+
+        with self._lock:
+            self.state.status = LoginStatus.REJECTED
+            self.state.field_errors.clear()
+            self.state.general_message = message
+            self.state.correlation_id = None
+            self.state.attempt_id = None
+            self.state.focus_field = None
+            snapshot = self._copy_state()
+        self._notify(snapshot)
+        return snapshot
+
     def apply_response(self, response: object, *, attempt_id: str | None = None) -> LoginFormState:
         """Accept only a complete confirmed login output for the current attempt."""
 
@@ -233,6 +256,7 @@ class LoginController:
                 self.state.correlation_id = None
                 self.state.attempt_id = None
                 self.state.focus_field = None
+                self._authenticated_output = output
                 snapshot = self._copy_state()
             self._notify(snapshot)
             return self._deliver_authenticated(snapshot, output)
@@ -348,6 +372,7 @@ class LoginController:
             self.state.correlation_id = None
             self.state.attempt_id = None
             self.state.focus_field = None
+            self._authenticated_output = None
             snapshot = self._copy_state()
         self._notify(snapshot)
         return snapshot
@@ -355,6 +380,7 @@ class LoginController:
     def reset(self) -> LoginFormState:
         with self._lock:
             self.state = LoginFormState()
+            self._authenticated_output = None
             snapshot = self._copy_state()
         self._notify(snapshot)
         return snapshot
@@ -381,6 +407,7 @@ class LoginController:
                 self.state.general_message = "No fue posible continuar hacia el área de la cuenta."
                 self.state.field_errors.clear()
                 self.state.correlation_id = None
+                self._authenticated_output = None
                 snapshot = self._copy_state()
             self._notify(snapshot)
         return snapshot

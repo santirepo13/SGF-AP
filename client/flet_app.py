@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from .access_continuity import AccessCoordinator, AccessStatus
+from .access_storage import SecureAccessStorage, UnavailableAccessStorage
 from .authentication import AuthenticationState
 from .design_tokens import COLORS
 from .http_connector import RegistrationHttpConnector, build_registration_connector
@@ -31,6 +33,9 @@ class _UnavailableConnector:
     def login(self, **kwargs: str) -> object:
         raise RuntimeError("login service configuration is unavailable") from self.reason
 
+    def current_user(self, **kwargs: str) -> object:
+        raise RuntimeError("session service configuration is unavailable") from self.reason
+
 
 def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector] | None = None) -> None:
     """Build responsive login, registration, recovery, and role landing views."""
@@ -53,6 +58,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         connector = _UnavailableConnector(error)
         configuration_message = _configuration_message(error)
 
+    access = AccessCoordinator(authenticated, _build_access_storage(), connector)
     login: LoginController | None = None
     registration = RegistrationController(connector)
 
@@ -62,27 +68,24 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         elif screen is ScreenName.REGISTER:
             registration.abandon()
 
-    navigation = NavigationController(on_screen_closed=closed)
+    navigation = NavigationController(
+        on_screen_closed=closed,
+        access_allowed=lambda: access.access_allowed,
+    )
 
-    def establish_authenticated(output: LoginOutput) -> None:
+    async def establish_authenticated(output: LoginOutput) -> None:
         role_name = output.user.get("role_name")
         if not isinstance(role_name, str):
             raise ValueError("El rol recibido no es válido.")
-        # Resolve the destination before making state visible. If either action
-        # fails, no partial user/token state survives.
         destination = navigation.destination_for_role(role_name)
-        try:
-            authenticated.establish(
-                user=output.user,
-                access_token=output.access_token,
-                expires_at=output.expires_at,
-            )
-            navigation.open(destination)
-        except BaseException:
-            authenticated.clear()
-            raise
+        await access.accept_login(
+            user=output.user,
+            access_token=output.access_token,
+            expires_at=output.expires_at,
+        )
+        navigation.open(destination)
 
-    login = LoginController(connector, on_authenticated=establish_authenticated)
+    login = LoginController(connector)
 
     def refresh() -> None:
         page.update()
@@ -119,6 +122,13 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         refresh()
 
     def render_current() -> None:
+        access_state = access.state
+        if access_state.status is AccessStatus.CHECKING:
+            render_access_checking()
+            return
+        if access_state.status is AccessStatus.UNAVAILABLE:
+            render_access_unavailable()
+            return
         active = navigation.active_screen
         if active is ScreenName.LOGIN:
             render_login()
@@ -128,6 +138,71 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_recovery()
         else:
             render_role_destination(active)
+
+    def apply_access_navigation() -> None:
+        state = access.state
+        if state.status is AccessStatus.AUTHENTICATED:
+            session = authenticated.session
+            if session is None:
+                return
+            navigation.continue_after_login(str(session.user["role_name"]))
+            return
+        if state.status in {AccessStatus.SIGNED_OUT, AccessStatus.REAUTHENTICATION_REQUIRED, AccessStatus.INACTIVE}:
+            navigation.revoke_access()
+            if state.message:
+                assert login is not None
+                login.show_message(state.message)
+
+    async def restore_access() -> None:
+        await access.restore()
+        apply_access_navigation()
+        render_current()
+
+    async def retry_access() -> None:
+        await access.retry()
+        apply_access_navigation()
+        render_current()
+
+    async def use_login_instead() -> None:
+        await access.show_login()
+        navigation.revoke_access()
+        assert login is not None
+        login.reset()
+        render_current()
+
+    def render_access_checking() -> None:
+        replace(
+            ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=14,
+                controls=[
+                    ft.ProgressRing(width=28, height=28),
+                    ft.Text("Comprobando tu acceso…", color=COLORS["text_secondary"].hex),
+                ],
+            ),
+            vertically_centered=True,
+        )
+
+    def render_access_unavailable() -> None:
+        async def retry(event: Any) -> None:
+            await retry_access()
+
+        async def login_instead(event: Any) -> None:
+            await use_login_instead()
+
+        replace(
+            ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                spacing=14,
+                controls=[
+                    centered(ft.Text("No fue posible comprobar el acceso", size=22, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
+                    centered(ft.Text(access.state.message or "Inténtalo nuevamente.", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
+                    centered(ft.Button("Reintentar", on_click=retry)),
+                    centered(ft.TextButton("Ingresar", on_click=login_instead)),
+                ],
+            ),
+            vertically_centered=True,
+        )
 
     def render_login() -> None:
         assert login is not None
@@ -183,6 +258,13 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             progress.visible = True
             refresh()
             await asyncio.to_thread(login.submit)
+            output = login.consume_authenticated_output()
+            if output is not None:
+                try:
+                    await establish_authenticated(output)
+                except BaseException:
+                    authenticated.clear()
+                    login.show_message("No fue posible continuar hacia el área de la cuenta.")
             render_current()
 
         def open_registration(event: Any) -> None:
@@ -349,11 +431,11 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         role_name = str(session.user.get("role_name", ""))
         first_name = str(session.user.get("first_name", ""))
 
-        def logout(event: Any) -> None:
-            authenticated.clear()
+        async def logout(event: Any) -> None:
+            await access.sign_out()
             assert login is not None
             login.reset()
-            navigation.back_to_login()
+            navigation.revoke_access()
             render_current()
 
         labels = {
@@ -379,7 +461,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             vertically_centered=True,
         )
 
-    def on_view_pop(event: Any) -> None:
+    async def on_view_pop(event: Any) -> None:
         active = navigation.active_screen
         if active in {ScreenName.REGISTER, ScreenName.RECOVER_PASSWORD}:
             navigation.back_to_login()
@@ -388,25 +470,35 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             assert login is not None
             login.abandon()
         else:
-            authenticated.clear()
+            await access.sign_out()
             assert login is not None
             login.reset()
-            navigation.back_to_login()
+            navigation.revoke_access()
             render_current()
 
-    def on_disconnect(event: Any) -> None:
+    async def on_disconnect(event: Any) -> None:
         assert login is not None
         login.abandon()
         registration.abandon()
-        authenticated.clear()
+        await access.forget_process()
+
+    async def on_app_lifecycle_state_change(event: Any) -> None:
+        state = str(getattr(event, "state", getattr(event, "data", ""))).casefold()
+        if "resumed" in state:
+            await retry_access()
 
     try:
         page.on_view_pop = on_view_pop
         page.on_disconnect = on_disconnect
+        page.on_app_lifecycle_state_change = on_app_lifecycle_state_change
     except (AttributeError, TypeError):
         pass
 
-    render_current()
+    render_access_checking()
+    try:
+        page.run_task(restore_access)
+    except (AttributeError, TypeError):
+        render_current()
 
 
 def _configure_phone_preview_window(page: Any) -> None:
@@ -448,6 +540,19 @@ def _disable_password_assistance(field: Any, ft: Any) -> None:
             setattr(field, name, value)
         except (AttributeError, TypeError):
             continue
+
+
+def _build_access_storage() -> SecureAccessStorage | UnavailableAccessStorage:
+    """Use Flet's native protected store; never fall back to plain preferences."""
+
+    try:
+        import flet_secure_storage as fss
+    except ModuleNotFoundError:
+        return UnavailableAccessStorage()
+    try:
+        return SecureAccessStorage(fss.SecureStorage())
+    except BaseException:
+        return UnavailableAccessStorage()
 
 
 def run() -> None:

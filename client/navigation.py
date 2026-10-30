@@ -25,6 +25,7 @@ ROLE_DESTINATIONS: dict[str, ScreenName] = {
     "Crew": ScreenName.CREW,
     "Admin": ScreenName.ADMIN,
 }
+PROTECTED_SCREENS = frozenset(ROLE_DESTINATIONS.values())
 
 
 @dataclass
@@ -47,10 +48,12 @@ class NavigationController:
         self,
         *,
         on_screen_closed: Callable[[ScreenName], None] | None = None,
+        access_allowed: Callable[[], bool] | None = None,
     ) -> None:
         self.active_screen = ScreenName.LOGIN
         self.login = LoginFormState()
         self._on_screen_closed = on_screen_closed
+        self._access_allowed = access_allowed or (lambda: True)
         self._listeners: list[Callable[[ScreenName], None]] = []
 
     def add_listener(self, listener: Callable[[ScreenName], None]) -> None:
@@ -62,8 +65,10 @@ class NavigationController:
             self._listeners.remove(listener)
 
     def open(self, screen: ScreenName) -> bool:
-        """Switch screens once; repeated requests do not create instances."""
+        """Switch screens once and never open a private area without confirmed access."""
 
+        if screen in PROTECTED_SCREENS and not self._access_allowed():
+            return self.revoke_access()
         if screen is self.active_screen:
             return False
         previous = self.active_screen
@@ -71,6 +76,18 @@ class NavigationController:
         self.active_screen = screen
         for listener in tuple(self._listeners):
             listener(screen)
+        return True
+
+    def revoke_access(self) -> bool:
+        """Discard any protected destination so back navigation cannot revive it."""
+
+        if self.active_screen is ScreenName.LOGIN:
+            return False
+        previous = self.active_screen
+        self._close(previous)
+        self.active_screen = ScreenName.LOGIN
+        for listener in tuple(self._listeners):
+            listener(ScreenName.LOGIN)
         return True
 
     def create_account(self) -> bool:
@@ -104,4 +121,4 @@ class NavigationController:
             self._on_screen_closed(screen)
 
 
-__all__ = ["LoginFormState", "NavigationController", "ROLE_DESTINATIONS", "ScreenName"]
+__all__ = ["LoginFormState", "NavigationController", "PROTECTED_SCREENS", "ROLE_DESTINATIONS", "ScreenName"]
