@@ -20,6 +20,9 @@ from api.http.responses import error_response
 logger = logging.getLogger("sgf_ap.api")
 
 
+_LOGIN_PATH = "/users/login"
+
+
 def register_http_error_handlers(app: FastAPI) -> None:
     """Register the application's single HTTP error translation boundary."""
 
@@ -32,7 +35,10 @@ def register_http_error_handlers(app: FastAPI) -> None:
 
 async def application_error_handler(request: Request, error: ApplicationError) -> Response:
     context = _http_context(request)
-    return error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error))
+    return _with_cache_policy(
+        request,
+        error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error)),
+    )
 
 
 def authentication_error_response(request: Request) -> Response:
@@ -40,7 +46,10 @@ def authentication_error_response(request: Request) -> Response:
 
     context = _http_context(request)
     error = ApplicationError.with_code(ErrorCode.API_AUTHENTICATION_REQUIRED, correlation_id=context.correlation_id)
-    return error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error))
+    return _with_cache_policy(
+        request,
+        error_response(ErrorHandler.to_public(error, context), headers=_headers_for_application_error(error)),
+    )
 
 
 async def request_validation_error_handler(request: Request, error: RequestValidationError) -> Response:
@@ -51,7 +60,7 @@ async def request_validation_error_handler(request: Request, error: RequestValid
         ErrorDetail(None, None, "La solicitud no cumple el formato esperado."),
     )
     application_error = ApplicationError.with_code(code, details=details, correlation_id=context.correlation_id)
-    return error_response(ErrorHandler.to_public(application_error, context))
+    return _with_cache_policy(request, error_response(ErrorHandler.to_public(application_error, context)))
 
 
 async def malformed_json_handler(request: Request, error: json.JSONDecodeError) -> Response:
@@ -62,31 +71,40 @@ async def malformed_json_handler(request: Request, error: json.JSONDecodeError) 
         correlation_id=context.correlation_id,
         cause=error,
     )
-    return error_response(ErrorHandler.to_public(application_error, context))
+    return _with_cache_policy(request, error_response(ErrorHandler.to_public(application_error, context)))
 
 
 async def transport_http_exception_handler(request: Request, error: StarletteHTTPException) -> Response:
     context = _http_context(request)
     if error.status_code == 404:
         application_error = ApplicationError.with_code(ErrorCode.HTTP_ROUTE_NOT_FOUND, correlation_id=context.correlation_id)
-        return error_response(ErrorHandler.to_public(application_error, context))
+        return _with_cache_policy(request, error_response(ErrorHandler.to_public(application_error, context)))
     if error.status_code == 405:
         application_error = ApplicationError.with_code(ErrorCode.HTTP_METHOD_NOT_ALLOWED, correlation_id=context.correlation_id)
         headers = _allow_header(error.headers)
-        return error_response(ErrorHandler.to_public(application_error, context), headers=headers)
+        return _with_cache_policy(request, error_response(ErrorHandler.to_public(application_error, context), headers=headers))
 
     application_error = ApplicationError.unexpected(correlation_id=context.correlation_id, cause=error)
-    return error_response(ErrorHandler.to_public(application_error, context), status_code=error.status_code)
+    return _with_cache_policy(
+        request,
+        error_response(ErrorHandler.to_public(application_error, context), status_code=error.status_code),
+    )
 
 
 async def unexpected_exception_handler(request: Request, error: Exception) -> Response:
     context = _http_context(request)
     logger.error("http_unexpected_error", extra={"correlation_id": context.correlation_id})
-    return error_response(ErrorHandler.handle(error, context))
+    return _with_cache_policy(request, error_response(ErrorHandler.handle(error, context)))
 
 
 def _http_context(request: Request) -> ExecutionContext:
     return ExecutionContext(operation="HTTP", correlation_id=correlation_id_for_request(request), actor=None)
+
+
+def _with_cache_policy(request: Request, response: Response) -> Response:
+    if request.url.path == _LOGIN_PATH:
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _is_missing(error: Mapping[str, Any]) -> bool:
@@ -115,4 +133,3 @@ def _allow_header(headers: Any) -> dict[str, str] | None:
         if name.lower() == "allow":
             return {"Allow": value}
     return None
-

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from api.contracts import CitizenRegistrationInput
+from api.contracts import CitizenRegistrationInput, UserLoginInput
 from api.errors import ApplicationError
 
 
@@ -120,8 +120,31 @@ def validate_user_registration_contract(
     return data
 
 
-# Explicit aliases make the shared rules convenient for the login flow without
-# coupling it to the registration module.
+def validate_user_login_contract(
+    data: UserLoginInput,
+    *,
+    correlation_id: str | None = None,
+) -> UserLoginInput:
+    """Validate only the fields that form an authentication attempt."""
+
+    if not isinstance(data, UserLoginInput):
+        raise ApplicationError.invalid_value(
+            "data",
+            "La entrada no corresponde al contrato de ingreso.",
+            correlation_id=correlation_id,
+        )
+    validate_shared_user_fields(
+        email=data.email,
+        password=data.password,
+        correlation_id=correlation_id,
+    )
+    return data
+
+
+# Explicit aliases make the shared rules convenient for callers without
+# coupling the login flow to the registration module.
+validate_login = validate_user_login_contract
+validate_login_input = validate_user_login_contract
 validate_email_format = validate_email
 validate_non_empty_password = validate_password
 validate_user_fields = validate_shared_user_fields
@@ -130,11 +153,14 @@ validate_user_fields = validate_shared_user_fields
 __all__ = [
     "validate_email",
     "validate_email_format",
+    "validate_login",
+    "validate_login_input",
     "validate_name",
     "validate_non_empty_password",
     "validate_password",
     "validate_shared_user_fields",
     "validate_user_fields",
+    "validate_user_login_contract",
     "validate_text_field",
     "validate_user_registration_contract",
 ]

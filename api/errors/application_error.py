@@ -69,6 +69,22 @@ class ApplicationError(Exception):
         return cls(ErrorCode.INACTIVE_USER, correlation_id=correlation_id)
 
     @classmethod
+    def invalid_credentials(cls, *, correlation_id: str | None = None) -> "ApplicationError":
+        return cls(ErrorCode.INVALID_CREDENTIALS, correlation_id=correlation_id)
+
+    @classmethod
+    def invalid_access_token(cls, *, correlation_id: str | None = None, cause: BaseException | None = None) -> "ApplicationError":
+        return cls(ErrorCode.INVALID_ACCESS_TOKEN, correlation_id=correlation_id, cause=cause)
+
+    @classmethod
+    def access_token_expired(cls, *, correlation_id: str | None = None, cause: BaseException | None = None) -> "ApplicationError":
+        return cls(ErrorCode.ACCESS_TOKEN_EXPIRED, correlation_id=correlation_id, cause=cause)
+
+    @classmethod
+    def access_token_required(cls, *, correlation_id: str | None = None) -> "ApplicationError":
+        return cls(ErrorCode.ACCESS_TOKEN_REQUIRED, correlation_id=correlation_id)
+
+    @classmethod
     def forbidden(cls, operation: str | None = None, *, correlation_id: str | None = None) -> "ApplicationError":
         details = () if operation is None else (ErrorDetail(None, None, f"La operación {operation} no está autorizada."),)
         return cls(ErrorCode.FORBIDDEN_OPERATION, details, correlation_id)

@@ -32,8 +32,11 @@ class ContextMiddleware:
             correlation_id = request.context.correlation_id if request.context and request.context.correlation_id else self.correlation_ids.generate()
             raise ApplicationError.invalid_value("operation", "La operación no está registrada.", correlation_id=correlation_id)
         correlation_id = request.context.correlation_id if request.context and request.context.correlation_id else self.correlation_ids.generate()
+        policy = OPERATION_POLICIES[operation]
         actor = request.context.actor if request.context else None
-        if self.identity_provider is not None:
+        if not policy.resolve_actor:
+            actor = None
+        elif self.identity_provider is not None:
             actor = self.identity_provider.resolve()
         request.operation = operation
         request.context = ExecutionContext(operation=operation, correlation_id=correlation_id, actor=actor)

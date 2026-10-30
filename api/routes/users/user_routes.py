@@ -7,6 +7,7 @@ from types import UnionType
 from typing import Annotated, Union, get_args, get_origin, get_type_hints
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from api.contracts import (
@@ -15,6 +16,7 @@ from api.contracts import (
     UserActivationInput,
     UserCreateInput,
     UserFilters,
+    UserLoginInput,
     UserOutput,
     UserUpdateInput,
 )
@@ -40,6 +42,7 @@ _GET_BY_ID = HttpOperation("UserService", "get_by_id")
 _GET_BY_EMAIL = HttpOperation("UserService", "get_by_email")
 _LIST_BY_FILTERS = HttpOperation("UserService", "list_by_filters")
 _REGISTER = HttpOperation("UserService", "register_citizen", success_status=201)
+_LOGIN = HttpOperation("UserService", "login", no_store=True)
 _CREATE = HttpOperation("UserService", "create", success_status=201)
 _UPDATE = HttpOperation("UserService", "update")
 _SET_ACTIVE = HttpOperation("UserService", "set_active")
@@ -90,6 +93,14 @@ def _user_responses(
         422: _error_response("La aplicación informó una referencia inválida."),
         500: _error_response("Ocurrió un fallo de persistencia o un error interno."),
     }
+
+
+def _login_responses() -> dict[int, dict[str, object]]:
+    responses = _user_responses(_LOGIN_OUTPUT_SCHEMA)
+    responses[200]["description"] = "Ingreso confirmado y credencial de acceso emitida."
+    responses[401] = _error_response("Las credenciales técnicas o las credenciales de ingreso no son válidas.")
+    responses[403] = _error_response("La cuenta existe pero no se encuentra habilitada.")
+    return responses
 
 
 def _error_response(description: str) -> dict[str, object]:
@@ -176,6 +187,32 @@ _CITIZEN_REGISTRATION_SCHEMA = {
         "password": {"type": "string", "format": "password", "writeOnly": True},
     },
 }
+_LOGIN_INPUT_SCHEMA = {
+    "type": "object",
+    "required": ["email", "password"],
+    "additionalProperties": False,
+    "properties": {
+        "email": {"type": "string", "format": "email", "example": "persona@example.test"},
+        "password": {"type": "string", "format": "password", "writeOnly": True},
+    },
+}
+_LOGIN_USER_SCHEMA = {
+    "type": "object",
+    "required": ["id", "first_name", "last_name", "email", "role_id", "role_name", "active"],
+    "properties": {
+        **_USER_OUTPUT_SCHEMA["properties"],
+        "role_name": {"type": "string", "enum": ["Citizen", "Operator", "Coordinator", "Crew", "Admin"]},
+    },
+}
+_LOGIN_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["user", "access_token", "expires_at"],
+    "properties": {
+        "user": _LOGIN_USER_SCHEMA,
+        "access_token": {"type": "string", "format": "opaque-token"},
+        "expires_at": {"type": "string", "format": "date-time"},
+    },
+}
 _USER_CREATE_SCHEMA = _contract_schema(UserCreateInput)
 
 _USER_UPDATE_SCHEMA = _contract_schema(UserUpdateInput, excluded_fields=frozenset({"user_id"}))
@@ -239,6 +276,50 @@ async def register_citizen(
         correlation_id=correlation_id,
     )
     return _execute(request, adapter, user_service, _REGISTER, data)
+
+
+@router.post(
+    "/login",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=_login_responses(),
+    summary="Ingresar a la aplicación",
+    description=(
+        "Autentica una cuenta activa y emite una credencial de acceso opaca. "
+        "Requiere autenticación técnica HTTP Basic, pero no una credencial de usuario previa."
+    ),
+    openapi_extra={
+        "security": [{"HTTPBasic": []}],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": _LOGIN_INPUT_SCHEMA}},
+        },
+    },
+)
+async def login(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    headers = getattr(request, "headers", None)
+    content_type = ""
+    if headers is not None:
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if headers is not None and content_type != "application/json":
+        raise ApplicationError.invalid_value(
+            None,
+            "El encabezado Content-Type debe ser application/json.",
+            correlation_id=correlation_id,
+        )
+    data = await read_json_contract(
+        request,
+        UserLoginInput,
+        correlation_id=correlation_id,
+    )
+    # Persistence and Argon2 verification are synchronous and run away from
+    # FastAPI's event loop. The shared adapter still owns pipeline execution.
+    return await run_in_threadpool(_execute, request, adapter, user_service, _LOGIN, data)
 
 
 @router.get(

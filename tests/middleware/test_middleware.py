@@ -138,7 +138,7 @@ def test_actor_absent_inactive_and_forbidden_cases_are_distinct():
     absent = pipeline().execute("UserService", "create", service, data)
     inactive = pipeline(ActorContext(1, 1, False), Permissions()).execute("UserService", "create", service, data)
     forbidden = pipeline(ActorContext(1, 1, True), Permissions(False)).execute("UserService", "create", service, data)
-    assert absent.error.code == ErrorCode.FORBIDDEN_OPERATION.value
+    assert absent.error.code == ErrorCode.ACCESS_TOKEN_REQUIRED.value
     assert inactive.error.code == ErrorCode.INACTIVE_USER.value
     assert forbidden.error.code == ErrorCode.FORBIDDEN_OPERATION.value
     assert service.calls == 0

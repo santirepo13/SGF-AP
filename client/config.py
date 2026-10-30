@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib import import_module
 from pathlib import Path
 
 from config import ConnectorConfig, load_connector_config
@@ -17,7 +18,7 @@ def load_client_config(
 
     if env_file is None and environ is None:
         try:
-            from . import packaged_config
+            packaged_config = import_module(f"{__package__}.packaged_config")
         except ModuleNotFoundError as error:
             if error.name != f"{__package__}.packaged_config":
                 raise

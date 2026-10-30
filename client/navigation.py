@@ -1,4 +1,4 @@
-"""Framework-neutral navigation and initial access-screen state."""
+"""Framework-neutral navigation and authenticated-role destinations."""
 
 from __future__ import annotations
 
@@ -11,10 +11,26 @@ class ScreenName(str, Enum):
     LOGIN = "login"
     REGISTER = "register"
     RECOVER_PASSWORD = "recover_password"
+    CITIZEN = "citizen"
+    OPERATOR = "operator"
+    COORDINATOR = "coordinator"
+    CREW = "crew"
+    ADMIN = "admin"
+
+
+ROLE_DESTINATIONS: dict[str, ScreenName] = {
+    "Citizen": ScreenName.CITIZEN,
+    "Operator": ScreenName.OPERATOR,
+    "Coordinator": ScreenName.COORDINATOR,
+    "Crew": ScreenName.CREW,
+    "Admin": ScreenName.ADMIN,
+}
 
 
 @dataclass
 class LoginFormState:
+    """Legacy lightweight state retained for existing navigation consumers."""
+
     email: str = ""
     password: str = field(default="", repr=False)
     message: str | None = None
@@ -69,17 +85,23 @@ class NavigationController:
     def continue_to_login(self) -> bool:
         return self.open(ScreenName.LOGIN)
 
+    def destination_for_role(self, role_name: str) -> ScreenName:
+        if type(role_name) is not str or role_name not in ROLE_DESTINATIONS:
+            raise ValueError("No existe un destino de navegación para el rol recibido.")
+        return ROLE_DESTINATIONS[role_name]
+
+    def continue_after_login(self, role_name: str) -> bool:
+        """Open the server-reported role destination exactly once."""
+
+        return self.open(self.destination_for_role(role_name))
+
     def close(self) -> None:
         self._close(self.active_screen)
         self._listeners.clear()
 
     def _close(self, screen: ScreenName) -> None:
-        if screen is ScreenName.REGISTER:
-            # The registration controller owns the actual password cleanup;
-            # this callback lets the screen adapter invoke it before disposal.
-            pass
         if self._on_screen_closed is not None:
             self._on_screen_closed(screen)
 
 
-__all__ = ["LoginFormState", "NavigationController", "ScreenName"]
+__all__ = ["LoginFormState", "NavigationController", "ROLE_DESTINATIONS", "ScreenName"]
