@@ -1,5 +1,17 @@
 from typing import Protocol
-from api.contracts import CitizenRegistrationInput, ExecutionContext, OperationResult, UserActivationInput, UserCreateInput, UserFilters, UserOutput, UserUpdateInput
+
+from api.contracts import (
+    CitizenRegistrationInput,
+    ExecutionContext,
+    OperationResult,
+    UserActivationInput,
+    UserCreateInput,
+    UserFilters,
+    UserLoginInput,
+    UserLoginOutput,
+    UserOutput,
+    UserUpdateInput,
+)
 
 
 class UserServiceInterface(Protocol):
@@ -11,6 +23,7 @@ class UserServiceInterface(Protocol):
         context: ExecutionContext,
         data: CitizenRegistrationInput,
     ) -> OperationResult[UserOutput]: ...
+    def login(self, context: ExecutionContext, data: UserLoginInput) -> OperationResult[UserLoginOutput]: ...
     def create(self, context: ExecutionContext, data: UserCreateInput) -> OperationResult[UserOutput]: ...
     def update(self, context: ExecutionContext, data: UserUpdateInput) -> OperationResult[UserOutput]: ...
     def set_active(self, context: ExecutionContext, data: UserActivationInput) -> OperationResult[UserOutput]: ...

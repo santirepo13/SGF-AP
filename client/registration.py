@@ -9,11 +9,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 import threading
 import unicodedata
 from typing import Any, Protocol
 from uuid import uuid4
+
+from .validation import EMAIL_PATTERN
 
 
 class RegistrationStatus(str, Enum):
@@ -110,9 +111,7 @@ class RegistrationController:
     """
 
     _FIELD_ORDER = ("first_name", "last_name", "email", "password", "confirm_password")
-    _EMAIL_PATTERN = re.compile(
-        r"^[^\s@]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
-    )
+    _EMAIL_PATTERN = EMAIL_PATTERN
     _KNOWN_FIELDS = frozenset(_FIELD_ORDER)
 
     def __init__(

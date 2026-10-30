@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
-from ..common_types import UNSET, Unset
+from ..common_types import UNSET, Unset, ensure_aware
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,19 @@ class CitizenRegistrationInput:
             ("email", self.email),
             ("password", self.password),
         ):
+            if type(value) is not str:
+                raise ValueError(f"{field_name} must be a string")
+
+
+@dataclass(frozen=True)
+class UserLoginInput:
+    """Credentials submitted by a person who wants to enter the application."""
+
+    email: str
+    password: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        for field_name, value in (("email", self.email), ("password", self.password)):
             if type(value) is not str:
                 raise ValueError(f"{field_name} must be a string")
 
@@ -69,9 +83,36 @@ class UserActivationInput:
 
 @dataclass(frozen=True)
 class UserOutput:
+    """Public user information.
+
+    ``role_name`` is supplied for authenticated responses so a client can route
+    an accepted login without inferring a role from an internal identifier. It
+    remains optional for older user lookup and registration operations whose
+    repositories do not resolve the role record.
+    """
+
     id: int
     first_name: str
     last_name: str
     email: str
     role_id: int
     active: bool
+    role_name: str | None = None
+
+
+@dataclass(frozen=True)
+class UserLoginOutput:
+    """Complete, public result of a confirmed login attempt."""
+
+    user: UserOutput
+    access_token: str = field(repr=False)
+    expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.user, UserOutput):
+            raise ValueError("user must be a UserOutput")
+        if type(self.access_token) is not str or not self.access_token:
+            raise ValueError("access_token must be a non-empty string")
+        if not isinstance(self.expires_at, datetime):
+            raise ValueError("expires_at must be a datetime")
+        ensure_aware(self.expires_at, "expires_at")

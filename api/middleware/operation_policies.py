@@ -10,7 +10,7 @@ from api.contracts import (
     CrewUpdateInput, EvidenceCreateInput, HistoryEventCreateInput,
     TicketAssignmentInput, TicketAttentionInput, TicketClosureReviewInput,
     TicketCreateInput, TicketOperationInput, UserActivationInput,
-    UserCreateInput, UserUpdateInput,
+    UserCreateInput, UserLoginInput, UserUpdateInput,
 )
 
 
@@ -19,6 +19,7 @@ class OperationPolicy:
     actor_required: bool = False
     permission: str | None = None
     input_types: tuple[type[Any], ...] = ()
+    resolve_actor: bool = True
 
 
 def _policies() -> dict[str, OperationPolicy]:
@@ -40,7 +41,8 @@ def _policies() -> dict[str, OperationPolicy]:
         "UserService.get_by_id": public,
         "UserService.get_by_email": public,
         "UserService.list_by_filters": public,
-        "UserService.register_citizen": OperationPolicy(actor_required=False, permission=None, input_types=(CitizenRegistrationInput,)),
+        "UserService.register_citizen": OperationPolicy(actor_required=False, permission=None, input_types=(CitizenRegistrationInput,), resolve_actor=False),
+        "UserService.login": OperationPolicy(actor_required=False, permission=None, input_types=(UserLoginInput,), resolve_actor=False),
         "UserService.create": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserCreateInput,)),
         "UserService.update": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserUpdateInput,)),
         "UserService.set_active": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserActivationInput,)),

@@ -56,7 +56,8 @@ from api.repositories import (
     TicketRepository,
     UserRepository,
 )
-from api.security import LazyArgon2idPasswordHasher, PasswordHasherInterface
+from api.interfaces.security import AccessTokenProviderInterface
+from api.security import LazyArgon2idPasswordHasher, PasswordHasherInterface, TokenIdentityProvider
 from api.services import (
     AddressService,
     CatalogService,
@@ -173,6 +174,9 @@ class OperationDependencies:
     evidence_service: EvidenceServiceInterface
     history_service: HistoryServiceInterface
     password_hasher: PasswordHasherInterface | None = None
+    users: UserRepository | None = None
+    roles: RoleRepository | None = None
+    access_token_provider: AccessTokenProviderInterface | None = None
 
 
 class ApplicationDependencies:
@@ -185,24 +189,53 @@ class ApplicationDependencies:
         identity_provider: IdentityProvider,
         correlation_ids: CorrelationIdGenerator,
         password_hasher: PasswordHasherInterface | None = None,
+        access_token_provider: AccessTokenProviderInterface | None = None,
     ) -> None:
         self.connection_provider = connection_provider
         self.pipeline = pipeline
         self.identity_provider = identity_provider
         self.correlation_ids = correlation_ids
         self.password_hasher = password_hasher
+        self.access_token_provider = access_token_provider
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
         with bind_request_actor(actor):
             yield
 
+    def identity_for_operation(
+        self,
+        access_token: str | None,
+        operation_dependencies: OperationDependencies | None,
+        *,
+        correlation_id: str | None = None,
+    ) -> IdentityProvider:
+        """Create a request-isolated token resolver from current repositories."""
+
+        if self.access_token_provider is not None:
+            if operation_dependencies is None or operation_dependencies.users is None or operation_dependencies.roles is None:
+                raise RuntimeError("request repositories are required to resolve a user identity")
+            return TokenIdentityProvider(
+                access_token,
+                self.access_token_provider,
+                operation_dependencies.users,
+                operation_dependencies.roles,
+                correlation_id=correlation_id,
+            )
+        return self.identity_provider
+
     @contextmanager
     def operation(self) -> Iterator[OperationDependencies]:
         with self.connection_provider.connection() as connection:
             repositories = _build_repositories(connection)
             transaction = ConnectionTransactionCoordinator(connection)
-            yield _build_operation_dependencies(repositories, transaction, self.pipeline, self.password_hasher)
+            yield _build_operation_dependencies(
+                repositories,
+                transaction,
+                self.pipeline,
+                self.password_hasher,
+                self.access_token_provider,
+            )
 
 
 def prepare_application_dependencies(
@@ -212,6 +245,7 @@ def prepare_application_dependencies(
     permission_checker: PermissionChecker | None = None,
     correlation_ids: CorrelationIdGenerator | None = None,
     password_hasher: PasswordHasherInterface | None = None,
+    access_token_provider: AccessTokenProviderInterface | None = None,
 ) -> ApplicationDependencies:
     """Create application-shared collaborators and request-scoped service factories."""
 
@@ -225,7 +259,7 @@ def prepare_application_dependencies(
             correlation_ids=correlation_generator,
         ),
         validation=ValidationMiddleware(),
-        authorization=AuthorizationMiddleware(permission_checker=permission_checker or DenyPermissionChecker()),
+        authorization=AuthorizationMiddleware(permission_checker=permission_checker),
         errors=ErrorMiddleware(),
         logging=ExecutionLoggingMiddleware(execution_logger),
     )
@@ -235,6 +269,7 @@ def prepare_application_dependencies(
         trusted_identity_provider,
         correlation_generator,
         password_hasher or LazyArgon2idPasswordHasher(),
+        access_token_provider,
     )
 
 
@@ -254,7 +289,12 @@ def get_operation_dependencies(request: Request) -> Iterator[OperationDependenci
     if not isinstance(dependencies, ApplicationDependencies):
         raise RuntimeError("application dependencies are not initialized")
     with dependencies.operation() as operation:
-        yield operation
+        request.state.sgfap_operation_dependencies = operation
+        try:
+            yield operation
+        finally:
+            if getattr(request.state, "sgfap_operation_dependencies", None) is operation:
+                delattr(request.state, "sgfap_operation_dependencies")
 
 
 def get_catalog_service(
@@ -345,6 +385,7 @@ def _build_operation_dependencies(
     transaction: ConnectionTransactionCoordinator,
     pipeline: MiddlewarePipeline,
     password_hasher: PasswordHasherInterface | None = None,
+    access_token_provider: AccessTokenProviderInterface | None = None,
 ) -> OperationDependencies:
     effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
     return OperationDependencies(
@@ -383,9 +424,13 @@ def _build_operation_dependencies(
             users=repositories.users,
             roles=repositories.roles,
             password_hasher=effective_password_hasher,
+            access_token_provider=access_token_provider,
             transaction=transaction,
         ),
         password_hasher=effective_password_hasher,
+        users=repositories.users,
+        roles=repositories.roles,
+        access_token_provider=access_token_provider,
         crew_service=CrewService(
             crews=repositories.crews,
             members=repositories.crew_members,

@@ -167,7 +167,7 @@ def test_registration_route_builds_the_public_contract() -> None:
     assert data.password == "exact password"
 
 
-def test_user_router_documents_seven_operations_and_public_contracts() -> None:
+def test_user_router_documents_eight_operations_and_public_contracts() -> None:
     application = FastAPI()
     application.include_router(router)
     document = application.openapi()
@@ -175,6 +175,7 @@ def test_user_router_documents_seven_operations_and_public_contracts() -> None:
     assert set(document["paths"]) == {
         "/users/by-email",
         "/users/register",
+        "/users/login",
         "/users",
         "/users/{user_id}",
         "/users/{user_id}/activation",

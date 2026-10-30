@@ -1,21 +1,19 @@
-"""Small HTTP transport used by the packaged Flet client.
+"""HTTP transport used by the packaged Flet client.
 
-The server-side executable connector remains in ``test_local_connector.py`` for
-full API plans.  The mobile app uses this isolated transport so packaging it
-does not pull server tests, database tooling, or local test credentials into an
-APK.
+The mobile app keeps this transport isolated from server tests and development
+connectors so APK packaging never includes database tooling or local secrets.
 """
 
 from __future__ import annotations
 
 import base64
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 import json
 import socket
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from config import ConnectorConfig
 
@@ -26,7 +24,7 @@ _TIMEOUT_SECONDS = 10
 class ConnectorResponse:
     status_code: int
     headers: dict[str, str]
-    payload: dict[str, Any]
+    payload: dict[str, Any] = field(repr=False)
 
 
 class ConnectorError(Exception):
@@ -54,12 +52,26 @@ class ConnectorResponseError(ConnectorError):
         self.request_sent = True
 
 
-class RegistrationTransport:
-    """Send the one public registration operation used by the mobile UI."""
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Return a redirect response to the controller instead of replaying login data."""
 
-    def __init__(self, config: ConnectorConfig, *, opener: Any | None = None) -> None:
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+class RegistrationTransport:
+    """Send public registration, login, and future authenticated operations."""
+
+    def __init__(
+        self,
+        config: ConnectorConfig,
+        *,
+        opener: Any | None = None,
+        access_token_supplier: Callable[[], str | None] | None = None,
+    ) -> None:
         self._config = config
-        self._opener = opener or build_opener()
+        self._opener = opener or build_opener(_NoRedirectHandler())
+        self._access_token_supplier = access_token_supplier
 
     def register_citizen(
         self,
@@ -69,27 +81,62 @@ class RegistrationTransport:
         email: str,
         password: str,
     ) -> ConnectorResponse:
-        body = json.dumps(
+        return self.post_json(
+            "/users/register",
             {
                 "first_name": first_name,
                 "last_name": last_name,
                 "email": email,
                 "password": password,
             },
+            requires_identity=False,
+        )
+
+    def login(self, *, email: str, password: str) -> ConnectorResponse:
+        """Submit exact credentials without attaching an earlier user token."""
+
+        return self.post_json(
+            "/users/login",
+            {"email": email, "password": password},
+            requires_identity=False,
+        )
+
+    def post_json(
+        self,
+        path: str,
+        body_values: Mapping[str, object],
+        *,
+        requires_identity: bool = False,
+    ) -> ConnectorResponse:
+        """Send one JSON request with Basic and, only when needed, user access."""
+
+        if not isinstance(path, str) or not path.startswith("/"):
+            raise ValueError("path must be an absolute API path")
+        body = json.dumps(
+            dict(body_values),
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
-        token = base64.b64encode(
+        basic_token = base64.b64encode(
             f"{self._config.user}:{self._config.password}".encode("utf-8")
         ).decode("ascii")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {basic_token}",
+        }
+        if requires_identity:
+            access_token = self._access_token_supplier() if self._access_token_supplier is not None else None
+            if type(access_token) is not str or not access_token:
+                raise ConnectorTransportError(
+                    "No hay una credencial de acceso disponible para la operación.",
+                    request_sent=False,
+                )
+            headers["User-Access-Token"] = access_token
         request = Request(
-            f"{self._config.base_url}/users/register",
+            f"{self._config.base_url}{path}",
             data=body,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": f"Basic {token}",
-            },
+            headers=headers,
             method="POST",
         )
         try:
@@ -119,6 +166,9 @@ class RegistrationTransport:
             ) from error
 
 
+ApiTransport = RegistrationTransport
+
+
 def _decode_response(status_code: int, headers: Any, content: bytes) -> ConnectorResponse:
     try:
         payload = json.loads(content.decode("utf-8"))
@@ -142,7 +192,7 @@ def _decode_response(status_code: int, headers: Any, content: bytes) -> Connecto
 def _safe_headers(headers: Any) -> dict[str, str]:
     if headers is None or not hasattr(headers, "items"):
         return {}
-    allowed = {"content-type", "www-authenticate", "x-correlation-id"}
+    allowed = {"content-type", "www-authenticate", "x-correlation-id", "cache-control"}
     return {
         str(name): str(value)
         for name, value in headers.items()
@@ -151,6 +201,7 @@ def _safe_headers(headers: Any) -> dict[str, str]:
 
 
 __all__ = [
+    "ApiTransport",
     "ConnectorError",
     "ConnectorResponse",
     "ConnectorResponseError",

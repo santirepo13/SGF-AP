@@ -6,9 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from api.config import APIConfig, ActorConfig, load_api_config
+from api.config import APIConfig, AccessTokenConfig, ActorConfig, load_api_config
 from api.errors import ApplicationError, ErrorCode
 from config import ConnectorConfig, load_connector_config
+
+
+_TEST_ACCESS_SECRET = "00" * 32
 
 
 def test_connector_config_loads_dotenv_and_hides_password_from_representation(tmp_path: Path) -> None:
@@ -66,14 +69,27 @@ def test_connector_config_rejects_missing_or_invalid_values(values: dict[str, st
 def test_api_config_loads_and_prioritizes_environment_without_exposing_password(tmp_path: Path) -> None:
     pytest.importorskip("dotenv")
     env_file = tmp_path / ".env"
-    env_file.write_text("API_PORT=8002\nAPI_USER=file-user\nAPI_PASSWORD=file-password\n", encoding="utf-8")
+    env_file.write_text(
+        f"API_PORT=8002\nAPI_USER=file-user\nAPI_PASSWORD=file-password\nACCESS_TOKEN_SECRET={_TEST_ACCESS_SECRET}\n",
+        encoding="utf-8",
+    )
 
     config = load_api_config(
         env_file,
-        environ={"API_PORT": "9000", "API_USER": "environment-user", "API_PASSWORD": "api-secret"},
+        environ={
+            "API_PORT": "9000",
+            "API_USER": "environment-user",
+            "API_PASSWORD": "api-secret",
+            "ACCESS_TOKEN_SECRET": _TEST_ACCESS_SECRET,
+        },
     )
 
-    assert config == APIConfig(port=9000, user="environment-user", password="api-secret")
+    assert config == APIConfig(
+        port=9000,
+        user="environment-user",
+        password="api-secret",
+        access_token=AccessTokenConfig(bytes(32), 3600),
+    )
     assert "api-secret" not in repr(config)
 
 
@@ -84,6 +100,7 @@ def test_api_config_loads_a_business_actor_separate_from_basic_credentials() -> 
             "API_PORT": "8002",
             "API_USER": "http-user",
             "API_PASSWORD": "http-password",
+            "ACCESS_TOKEN_SECRET": _TEST_ACCESS_SECRET,
             "SGFAP_ACTOR_USER_ID": "15",
             "SGFAP_ACTOR_ROLE_ID": "5",
             "SGFAP_ACTOR_ACTIVE": "true",

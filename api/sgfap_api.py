@@ -10,11 +10,12 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from api.config import PostgresConnectionProvider, load_api_config, load_database_config
-from api.dependencies import ConfiguredIdentityProvider, ConfiguredPermissionChecker, prepare_application_dependencies
+from api.dependencies import ConfiguredPermissionChecker, prepare_application_dependencies
 from api.errors.http import register_http_error_handlers
 from api.http.adapter import HttpOperationAdapter
 from api.http.authentication import BasicAuthenticationMiddleware
 from api.middleware.base import CorrelationIdGenerator, IdentityProvider, PermissionChecker
+from api.security import AccessTokenProvider
 from api.routes import register_routers
 
 logger = logging.getLogger("sgf_ap.api")
@@ -72,10 +73,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     try:
         application.state.api_config = load_api_config()
         if application.state.api_config.actor is not None:
-            if getattr(application.state, "identity_provider", None) is None:
-                application.state.identity_provider = ConfiguredIdentityProvider(application.state.api_config)
             if getattr(application.state, "permission_checker", None) is None:
                 application.state.permission_checker = ConfiguredPermissionChecker(application.state.api_config)
+        access_token_provider = AccessTokenProvider(application.state.api_config.access_token)
         logger.info("database_configuration_loading")
         config = load_database_config()
         provider = PostgresConnectionProvider(config)
@@ -96,6 +96,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             identity_provider=getattr(application.state, "identity_provider", None),
             permission_checker=getattr(application.state, "permission_checker", None),
             correlation_ids=getattr(application.state, "correlation_ids", None),
+            access_token_provider=access_token_provider,
         )
         application.state.http_adapter = HttpOperationAdapter()
         logger.info("application_dependencies_prepared")

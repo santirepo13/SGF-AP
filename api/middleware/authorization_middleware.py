@@ -14,10 +14,12 @@ class AuthorizationMiddleware:
         policy = OPERATION_POLICIES[request.operation_name]
         actor = request.context.actor
         if policy.actor_required and actor is None:
-            raise ApplicationError.forbidden(request.operation_name, correlation_id=request.context.correlation_id)
+            raise ApplicationError.access_token_required(correlation_id=request.context.correlation_id)
         if actor is not None and not actor.active:
             raise ApplicationError.inactive_user(correlation_id=request.context.correlation_id)
-        if policy.permission and actor is not None and self.permission_checker is not None:
-            if not self.permission_checker.is_allowed(actor, policy.permission, request.operation_name):
+        if policy.permission:
+            if self.permission_checker is None:
+                raise ApplicationError.unexpected(correlation_id=request.context.correlation_id)
+            if actor is None or not self.permission_checker.is_allowed(actor, policy.permission, request.operation_name):
                 raise ApplicationError.forbidden(request.operation_name, correlation_id=request.context.correlation_id)
         return next_handler(request)

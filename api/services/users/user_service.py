@@ -1,4 +1,4 @@
-"""User application service, including citizen registration."""
+"""User application service, including registration and credential login."""
 
 from __future__ import annotations
 
@@ -11,16 +11,20 @@ from api.contracts import (
     UserActivationInput,
     UserCreateInput,
     UserFilters,
+    UserLoginInput,
+    UserLoginOutput,
     UserOutput,
     UserUpdateInput,
 )
-from api.errors import ApplicationError
+from api.errors import ApplicationError, ErrorCode
 from api.enums import RoleName
 from api.interfaces.repositories import RoleRepositoryInterface, UserRepositoryInterface
-from api.security import Argon2idPasswordHasher, PasswordHasherInterface
+from api.interfaces.security import AccessTokenProviderInterface
+from api.security import Argon2idPasswordHasher, PasswordHasherInterface, role_name_for
 
 from ..base import ServiceBase
 from .registration_validation import validate_registration
+from .user_validation import validate_login
 
 
 class UserService(ServiceBase):
@@ -29,38 +33,50 @@ class UserService(ServiceBase):
         users: UserRepositoryInterface,
         roles: RoleRepositoryInterface,
         password_hasher: PasswordHasherInterface | None = None,
+        access_token_provider: AccessTokenProviderInterface | None = None,
         *,
         password_generator: PasswordHasherInterface | None = None,
         hash_generator: PasswordHasherInterface | None = None,
+        token_provider: AccessTokenProviderInterface | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.users = users
         self.roles = roles
-        # Accept the descriptive aliases during composition while retaining a
-        # single component for the service operation.
+        # Accept descriptive aliases during composition while retaining one
+        # hashing component for registration and verification.
         self.password_hasher = password_hasher or password_generator or hash_generator
         self.password_generator = self.password_hasher
         self.hash_generator = self.password_hasher
+        self.access_token_provider = access_token_provider or token_provider
+        self.token_provider = self.access_token_provider
 
     @staticmethod
-    def _out(value):
-        return UserOutput(value.id, value.first_name, value.last_name, value.email, value.role_id, value.active)
+    def _out(value: object, *, role_name: str | None = None) -> UserOutput:
+        return UserOutput(
+            value.id,
+            value.first_name,
+            value.last_name,
+            value.email,
+            value.role_id,
+            value.active,
+            role_name,
+        )
 
-    def _get(self, context, value):
+    def _get(self, context: ExecutionContext, value: object) -> UserOutput:
         if value is None:
             raise self._missing("user", context)
         return self._out(value)
 
-    def get_by_id(self, context, user_id: int) -> OperationResult[UserOutput]:
+    def get_by_id(self, context: ExecutionContext, user_id: int) -> OperationResult[UserOutput]:
         return self._execute(context, context.operation, lambda: self._get(context, self.users.get_by_id(user_id)))
 
-    def get_by_email(self, context, email: str) -> OperationResult[UserOutput]:
+    def get_by_email(self, context: ExecutionContext, email: str) -> OperationResult[UserOutput]:
         return self._execute(context, context.operation, lambda: self._get(context, self.users.get_by_email(email)))
 
     def list_by_filters(
         self,
-        context,
+        context: ExecutionContext,
         filters: UserFilters | None = None,
     ) -> OperationResult[list[UserOutput]]:
         return self._execute(
@@ -97,15 +113,50 @@ class UserService(ServiceBase):
 
         return self._execute(context, context.operation, work, write=True, actor_required=False)
 
-    def create(self, context, data: UserCreateInput) -> OperationResult[UserOutput]:
-        def work():
+    def login(
+        self,
+        context: ExecutionContext,
+        data: UserLoginInput,
+    ) -> OperationResult[UserLoginOutput]:
+        """Authenticate a registered account and issue one opaque access token."""
+
+        def work() -> UserLoginOutput:
+            validated = validate_login(data, correlation_id=context.correlation_id)
+            user = self.users.get_by_email(validated.email)
+            if user is None:
+                raise ApplicationError.with_code(
+                    ErrorCode.INVALID_CREDENTIALS,
+                    correlation_id=context.correlation_id,
+                )
+            if not self._verify_password(user.password_hash, validated.password):
+                raise ApplicationError.with_code(
+                    ErrorCode.INVALID_CREDENTIALS,
+                    correlation_id=context.correlation_id,
+                )
+            if not user.active:
+                raise ApplicationError.inactive_user(correlation_id=context.correlation_id)
+            role = self.roles.get_by_id(user.role_id)
+            public_role_name = role_name_for(role)
+            if public_role_name is None or getattr(role, "id", None) != user.role_id:
+                raise ApplicationError.catalog_unavailable("role", correlation_id=context.correlation_id)
+            issued = self._issue_access_token(user.id)
+            return UserLoginOutput(
+                user=self._out(user, role_name=public_role_name),
+                access_token=issued.access_token,
+                expires_at=issued.expires_at,
+            )
+
+        return self._execute(context, context.operation, work, actor_required=False)
+
+    def create(self, context: ExecutionContext, data: UserCreateInput) -> OperationResult[UserOutput]:
+        def work() -> UserOutput:
             if self.roles.get_by_id(data.role_id) is None:
                 raise self._missing("role", context)
             return self._get(context, self.users.create(data))
 
         return self._execute(context, context.operation, work, write=True, actor_required=True)
 
-    def update(self, context, data: UserUpdateInput) -> OperationResult[UserOutput]:
+    def update(self, context: ExecutionContext, data: UserUpdateInput) -> OperationResult[UserOutput]:
         return self._execute(
             context,
             context.operation,
@@ -114,7 +165,7 @@ class UserService(ServiceBase):
             actor_required=True,
         )
 
-    def set_active(self, context, data: UserActivationInput) -> OperationResult[UserOutput]:
+    def set_active(self, context: ExecutionContext, data: UserActivationInput) -> OperationResult[UserOutput]:
         return self._execute(
             context,
             context.operation,
@@ -144,3 +195,30 @@ class UserService(ServiceBase):
                 raise RuntimeError("password hash component returned an invalid result")
             return result
         raise TypeError("password hash component is not callable")
+
+    def _verify_password(self, password_hash: str, password: str) -> bool:
+        component = self.password_hasher
+        if component is None:
+            component = Argon2idPasswordHasher()
+            self.password_hasher = component
+            self.password_generator = component
+            self.hash_generator = component
+        for method_name in ("verify_password", "verify"):
+            method = getattr(component, method_name, None)
+            if callable(method):
+                result = method(password_hash, password)
+                if type(result) is not bool:
+                    raise RuntimeError("password verification component returned an invalid result")
+                return result
+        raise TypeError("password verification component is not callable")
+
+    def _issue_access_token(self, user_id: int):
+        provider = self.access_token_provider
+        if provider is None:
+            raise RuntimeError("access-token provider is not configured")
+        issued = provider.issue(user_id)
+        token = getattr(issued, "access_token", None)
+        expires_at = getattr(issued, "expires_at", None)
+        if type(token) is not str or not token or expires_at is None:
+            raise RuntimeError("access-token provider returned an invalid result")
+        return issued

@@ -1,4 +1,4 @@
-"""Validated HTTP API configuration loaded from environment variables."""
+"""Validated HTTP API and access-token configuration loaded from environment."""
 
 from __future__ import annotations
 
@@ -21,13 +21,42 @@ class ActorConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessTokenConfig:
+    """Validated server-only key material and expiry for HS256 credentials."""
+
+    secret: bytes = field(repr=False)
+    ttl_seconds: int = 3600
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.secret, bytes) or len(self.secret) < 32:
+            raise ValueError("access-token secret must contain at least 32 bytes")
+        if type(self.ttl_seconds) is not int or self.ttl_seconds <= 0:
+            raise ValueError("access-token lifetime must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
 class APIConfig:
-    """Server port, HTTP Basic credentials, and optional trusted actor settings."""
+    """Server port, HTTP Basic credentials, and user access-token settings."""
 
     port: int
     user: str
     password: str = field(repr=False)
     actor: ActorConfig | None = None
+    access_token: AccessTokenConfig | None = field(default=None, repr=False)
+
+    @property
+    def access_token_secret(self) -> bytes:
+        """Return key bytes only for server-side composition."""
+
+        if self.access_token is None:
+            raise RuntimeError("access-token configuration is not initialized")
+        return self.access_token.secret
+
+    @property
+    def access_token_ttl_seconds(self) -> int:
+        if self.access_token is None:
+            raise RuntimeError("access-token configuration is not initialized")
+        return self.access_token.ttl_seconds
 
 
 def load_api_config(
@@ -59,7 +88,58 @@ def load_api_config(
     if not 1 <= port <= 65535:
         raise ApplicationError.invalid_value("API_PORT", "El puerto de la API debe estar entre 1 y 65535.")
 
-    return APIConfig(port=port, user=user, password=password, actor=_load_actor_config(values))
+    return APIConfig(
+        port=port,
+        user=user,
+        password=password,
+        actor=_load_actor_config(values),
+        access_token=_load_access_token_config(values),
+    )
+
+
+def _load_access_token_config(values: Mapping[str, str]) -> AccessTokenConfig:
+    """Decode and validate the server-only hexadecimal JWT signing key."""
+
+    encoded_secret = values.get("ACCESS_TOKEN_SECRET", "")
+    if not encoded_secret:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_SECRET",
+            "La clave de acceso del servidor es obligatoria.",
+        )
+    try:
+        secret = bytes.fromhex(encoded_secret)
+    except ValueError as exc:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_SECRET",
+            "La clave de acceso del servidor debe estar codificada en hexadecimal.",
+            cause=exc,
+        ) from exc
+    if len(secret) < 32:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_SECRET",
+            "La clave de acceso del servidor debe tener al menos 32 bytes.",
+        )
+
+    ttl_value = values.get("ACCESS_TOKEN_TTL_SECONDS", "3600").strip()
+    if not ttl_value:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_TTL_SECONDS",
+            "La vigencia de la credencial es obligatoria.",
+        )
+    try:
+        ttl_seconds = int(ttl_value)
+    except ValueError as exc:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_TTL_SECONDS",
+            "La vigencia de la credencial debe ser un número entero.",
+            cause=exc,
+        ) from exc
+    if ttl_seconds <= 0:
+        raise ApplicationError.invalid_value(
+            "ACCESS_TOKEN_TTL_SECONDS",
+            "La vigencia de la credencial debe ser positiva.",
+        )
+    return AccessTokenConfig(secret=secret, ttl_seconds=ttl_seconds)
 
 
 def _load_actor_config(values: Mapping[str, str]) -> ActorConfig | None:
@@ -98,19 +178,37 @@ def _load_actor_config(values: Mapping[str, str]) -> ActorConfig | None:
 
 
 def _load_dotenv(env_file: str | Path, values: dict[str, str]) -> None:
-    """Load missing values from a dotenv file without replacing process variables."""
+    """Load missing dotenv values without replacing explicit process variables."""
 
     path = Path(env_file)
     if not path.exists():
         return
     try:
         from dotenv import dotenv_values
-    except ModuleNotFoundError as exc:
-        raise ApplicationError.invalid_value(
-            "env_file",
-            "La dependencia python-dotenv es necesaria para cargar el archivo de entorno.",
-            cause=exc,
-        ) from exc
-    for key, value in dotenv_values(path).items():
+    except ModuleNotFoundError:
+        loaded = _read_simple_dotenv(path)
+    else:
+        loaded = dotenv_values(path)
+    for key, value in loaded.items():
         if key and value is not None and key not in values:
             values[key] = value
+
+
+def _read_simple_dotenv(path: Path) -> dict[str, str]:
+    """Minimal fallback for production images that omit python-dotenv."""
+
+    result: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if key:
+            result[key] = value
+    return result

@@ -139,7 +139,7 @@ def test_middleware_pipeline_is_composed_with_its_default_collaborators() -> Non
     assert pipeline.context.identity_provider.__class__.__name__ == "RequestIdentityProvider"
     assert dependencies.identity_provider.__class__.__name__ == "UnauthenticatedIdentityProvider"
     assert pipeline.context.correlation_ids.__class__.__name__ == "UuidCorrelationIdGenerator"
-    assert pipeline.authorization.permission_checker.__class__.__name__ == "DenyPermissionChecker"
+    assert pipeline.authorization.permission_checker is None
     assert pipeline.logging.logger.__class__.__name__ == "StructuredExecutionLogger"
 
 
