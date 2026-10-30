@@ -83,15 +83,39 @@ def _validate_http_url(value: str) -> None:
 
 
 def _load_dotenv(env_file: str | Path, values: dict[str, str]) -> None:
-    """Load only absent values from dotenv so process variables remain authoritative."""
+    """Load absent dotenv values without requiring an optional package at runtime."""
 
     path = Path(env_file)
     if not path.exists():
         return
     try:
         from dotenv import dotenv_values
-    except ModuleNotFoundError as exc:
-        raise ValueError("python-dotenv es necesaria para cargar el archivo .env.") from exc
+    except ModuleNotFoundError:
+        _load_simple_dotenv(path, values)
+        return
     for key, value in dotenv_values(path).items():
         if key and value is not None and key not in values:
             values[key] = value
+
+
+def _load_simple_dotenv(path: Path, values: dict[str, str]) -> None:
+    """Read the KEY=VALUE entries used by the local connector configuration."""
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError("No fue posible leer el archivo .env local.") from exc
+    for line in lines:
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        if entry.startswith("export "):
+            entry = entry[7:].lstrip()
+        key, separator, value = entry.partition("=")
+        key = key.strip()
+        if not separator or not key or key in values:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key] = value
