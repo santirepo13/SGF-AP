@@ -17,6 +17,12 @@ from api.contracts import (
     UserCreateInput,
     UserFilters,
     UserLoginInput,
+    PasswordRecoveryRequestInput,
+    PasswordRecoveryRequestOutput,
+    PasswordRecoveryVerifyInput,
+    PasswordRecoveryVerifyOutput,
+    PasswordResetInput,
+    PasswordResetOutput,
     UserOutput,
     UserUpdateInput,
 )
@@ -44,6 +50,9 @@ _LIST_BY_FILTERS = HttpOperation("UserService", "list_by_filters")
 _REGISTER = HttpOperation("UserService", "register_citizen", success_status=201)
 _LOGIN = HttpOperation("UserService", "login", no_store=True)
 _CURRENT_USER = HttpOperation("UserService", "get_current_user", no_store=True)
+_RECOVERY_REQUEST = HttpOperation("UserService", "request_password_recovery", success_status=202, no_store=True)
+_RECOVERY_VERIFY = HttpOperation("UserService", "verify_password_recovery", no_store=True)
+_RECOVERY_COMPLETE = HttpOperation("UserService", "complete_password_recovery", no_store=True)
 _CREATE = HttpOperation("UserService", "create", success_status=201)
 _UPDATE = HttpOperation("UserService", "update")
 _SET_ACTIVE = HttpOperation("UserService", "set_active")
@@ -109,6 +118,14 @@ def _current_user_responses() -> dict[int, dict[str, object]]:
     responses[200]["description"] = "Cuenta autenticada vigente."
     responses[401] = _error_response("La credencial de acceso es obligatoria, inválida o venció.")
     responses[403] = _error_response("La cuenta no se encuentra habilitada.")
+    return responses
+
+
+def _recovery_responses(data_schema: dict[str, object], *, success_status: int = 200) -> dict[int, dict[str, object]]:
+    responses = _user_responses(data_schema, success_status=success_status)
+    responses[400] = _error_response("La recuperación no pudo continuar con los datos o código proporcionados.")
+    responses[429] = _error_response("Debes esperar antes de intentar nuevamente.")
+    responses[503] = _error_response("La recuperación no está disponible en este momento.")
     return responses
 
 
@@ -222,6 +239,46 @@ _LOGIN_OUTPUT_SCHEMA = {
         "expires_at": {"type": "string", "format": "date-time"},
     },
 }
+_RECOVERY_REQUEST_SCHEMA = {
+    "type": "object",
+    "required": ["email"],
+    "additionalProperties": False,
+    "properties": {"email": {"type": "string", "format": "email"}},
+}
+_RECOVERY_VERIFY_SCHEMA = {
+    "type": "object",
+    "required": ["request_id", "code"],
+    "additionalProperties": False,
+    "properties": {
+        "request_id": {"type": "string"},
+        "code": {"type": "string", "pattern": "^[0-9]{8}$", "writeOnly": True},
+    },
+}
+_RECOVERY_COMPLETE_SCHEMA = {
+    "type": "object",
+    "required": ["reset_token", "new_password", "password_confirmation"],
+    "additionalProperties": False,
+    "properties": {
+        "reset_token": {"type": "string", "format": "opaque-token", "writeOnly": True},
+        "new_password": {"type": "string", "format": "password", "writeOnly": True},
+        "password_confirmation": {"type": "string", "format": "password", "writeOnly": True},
+    },
+}
+_RECOVERY_REQUEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["request_id", "message"],
+    "properties": {"request_id": {"type": "string"}, "message": {"type": "string"}},
+}
+_RECOVERY_VERIFY_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["reset_token", "expires_at"],
+    "properties": {"reset_token": {"type": "string", "format": "opaque-token"}, "expires_at": {"type": "string", "format": "date-time"}},
+}
+_RECOVERY_COMPLETE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["completed_at"],
+    "properties": {"completed_at": {"type": "string", "format": "date-time"}},
+}
 _USER_CREATE_SCHEMA = _contract_schema(UserCreateInput)
 
 _USER_UPDATE_SCHEMA = _contract_schema(UserUpdateInput, excluded_fields=frozenset({"user_id"}))
@@ -329,6 +386,69 @@ async def login(
     # Persistence and Argon2 verification are synchronous and run away from
     # FastAPI's event loop. The shared adapter still owns pipeline execution.
     return await run_in_threadpool(_execute, request, adapter, user_service, _LOGIN, data)
+
+
+@router.post(
+    "/password-recovery/request",
+    status_code=202,
+    response_class=JSONResponse,
+    responses=_recovery_responses(_RECOVERY_REQUEST_OUTPUT_SCHEMA, success_status=202),
+    summary="Solicitar recuperación de contraseña",
+    openapi_extra={
+        "security": [{"HTTPBasic": []}],
+        "requestBody": {"required": True, "content": {"application/json": {"schema": _RECOVERY_REQUEST_SCHEMA}}},
+    },
+)
+async def request_password_recovery(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(request, PasswordRecoveryRequestInput, correlation_id=correlation_id)
+    return await run_in_threadpool(_execute, request, adapter, user_service, _RECOVERY_REQUEST, data)
+
+
+@router.post(
+    "/password-recovery/verify",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=_recovery_responses(_RECOVERY_VERIFY_OUTPUT_SCHEMA),
+    summary="Verificar código de recuperación",
+    openapi_extra={
+        "security": [{"HTTPBasic": []}],
+        "requestBody": {"required": True, "content": {"application/json": {"schema": _RECOVERY_VERIFY_SCHEMA}}},
+    },
+)
+async def verify_password_recovery(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(request, PasswordRecoveryVerifyInput, correlation_id=correlation_id)
+    return await run_in_threadpool(_execute, request, adapter, user_service, _RECOVERY_VERIFY, data)
+
+
+@router.post(
+    "/password-recovery/complete",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=_recovery_responses(_RECOVERY_COMPLETE_OUTPUT_SCHEMA),
+    summary="Establecer nueva contraseña",
+    openapi_extra={
+        "security": [{"HTTPBasic": []}],
+        "requestBody": {"required": True, "content": {"application/json": {"schema": _RECOVERY_COMPLETE_SCHEMA}}},
+    },
+)
+async def complete_password_recovery(
+    request: Request,
+    user_service: UserServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(request, PasswordResetInput, correlation_id=correlation_id)
+    return await run_in_threadpool(_execute, request, adapter, user_service, _RECOVERY_COMPLETE, data)
 
 
 @router.get(

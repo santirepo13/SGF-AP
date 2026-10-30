@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from api.contracts import (
@@ -13,6 +14,12 @@ from api.contracts import (
     UserFilters,
     UserLoginInput,
     UserLoginOutput,
+    PasswordRecoveryRequestInput,
+    PasswordRecoveryRequestOutput,
+    PasswordRecoveryVerifyInput,
+    PasswordRecoveryVerifyOutput,
+    PasswordResetInput,
+    PasswordResetOutput,
     UserOutput,
     UserUpdateInput,
 )
@@ -20,9 +27,22 @@ from api.errors import ApplicationError, ErrorCode
 from api.enums import RoleName
 from api.interfaces.repositories import RoleRepositoryInterface, UserRepositoryInterface
 from api.interfaces.security import AccessTokenProviderInterface
-from api.security import Argon2idPasswordHasher, PasswordHasherInterface, role_name_for
+from api.notifications import PasswordRecoveryNotifier, ResendNotificationError
+from api.security import (
+    Argon2idPasswordHasher,
+    PasswordHasherInterface,
+    PasswordRecoveryStore,
+    RecoveryProofRejected,
+    RecoveryRateLimited,
+    role_name_for,
+)
 
 from ..base import ServiceBase
+from .password_recovery_validation import (
+    validate_password_reset,
+    validate_recovery_request,
+    validate_recovery_verify,
+)
 from .registration_validation import validate_registration
 from .user_validation import validate_login
 
@@ -34,6 +54,9 @@ class UserService(ServiceBase):
         roles: RoleRepositoryInterface,
         password_hasher: PasswordHasherInterface | None = None,
         access_token_provider: AccessTokenProviderInterface | None = None,
+        password_recovery_store: PasswordRecoveryStore | None = None,
+        password_recovery_notifier: PasswordRecoveryNotifier | None = None,
+        password_recovery_code_ttl_seconds: int = 600,
         *,
         password_generator: PasswordHasherInterface | None = None,
         hash_generator: PasswordHasherInterface | None = None,
@@ -50,6 +73,9 @@ class UserService(ServiceBase):
         self.hash_generator = self.password_hasher
         self.access_token_provider = access_token_provider or token_provider
         self.token_provider = self.access_token_provider
+        self.password_recovery_store = password_recovery_store
+        self.password_recovery_notifier = password_recovery_notifier
+        self.password_recovery_code_ttl_seconds = password_recovery_code_ttl_seconds
 
     @staticmethod
     def _out(value: object, *, role_name: str | None = None) -> UserOutput:
@@ -139,12 +165,111 @@ class UserService(ServiceBase):
             public_role_name = role_name_for(role)
             if public_role_name is None or getattr(role, "id", None) != user.role_id:
                 raise ApplicationError.catalog_unavailable("role", correlation_id=context.correlation_id)
-            issued = self._issue_access_token(user.id)
+            issued = self._issue_access_token(user.id, user.auth_version)
             return UserLoginOutput(
                 user=self._out(user, role_name=public_role_name),
                 access_token=issued.access_token,
                 expires_at=issued.expires_at,
             )
+
+        return self._execute(context, context.operation, work, actor_required=False)
+
+    def request_password_recovery(
+        self,
+        context: ExecutionContext,
+        data: PasswordRecoveryRequestInput,
+    ) -> OperationResult[PasswordRecoveryRequestOutput]:
+        """Accept a privacy-preserving recovery request and send one code when possible."""
+
+        def work() -> PasswordRecoveryRequestOutput:
+            validated = validate_recovery_request(data, correlation_id=context.correlation_id)
+            store, notifier = self._recovery_components(context)
+            user = self.users.get_by_email(validated.email)
+            try:
+                challenge, code = store.begin(
+                    user_id=None if user is None else user.id,
+                    email=validated.email,
+                )
+            except RecoveryRateLimited as error:
+                raise ApplicationError.with_code(
+                    ErrorCode.RECOVERY_RATE_LIMITED,
+                    correlation_id=context.correlation_id,
+                    cause=error,
+                ) from error
+            if user is not None:
+                try:
+                    notifier.send_code(
+                        recipient=user.email,
+                        request_id=challenge.request_id,
+                        code=code,
+                        expires_in_minutes=max(1, self.password_recovery_code_ttl_seconds // 60),
+                    )
+                except ResendNotificationError:
+                    # Keep the public answer uniform. A later request can create
+                    # a fresh proof after the configured wait.
+                    pass
+            return PasswordRecoveryRequestOutput(
+                request_id=challenge.request_id,
+                message="Si el correo corresponde a una cuenta, recibirás un código para introducir en la aplicación.",
+            )
+
+        return self._execute(context, context.operation, work, actor_required=False)
+
+    def verify_password_recovery(
+        self,
+        context: ExecutionContext,
+        data: PasswordRecoveryVerifyInput,
+    ) -> OperationResult[PasswordRecoveryVerifyOutput]:
+        def work() -> PasswordRecoveryVerifyOutput:
+            validated = validate_recovery_verify(data, correlation_id=context.correlation_id)
+            store, _ = self._recovery_components(context)
+            try:
+                reset_token, expires_at = store.verify(request_id=validated.request_id, code=validated.code)
+            except RecoveryRateLimited as error:
+                raise ApplicationError.with_code(ErrorCode.RECOVERY_RATE_LIMITED, correlation_id=context.correlation_id, cause=error) from error
+            except RecoveryProofRejected as error:
+                raise ApplicationError.with_code(ErrorCode.RECOVERY_PROOF_REJECTED, correlation_id=context.correlation_id, cause=error) from error
+            return PasswordRecoveryVerifyOutput(reset_token=reset_token, expires_at=expires_at)
+
+        return self._execute(context, context.operation, work, actor_required=False)
+
+    def complete_password_recovery(
+        self,
+        context: ExecutionContext,
+        data: PasswordResetInput,
+    ) -> OperationResult[PasswordResetOutput]:
+        """Replace the password once and advance its access-token revision."""
+
+        def work() -> PasswordResetOutput:
+            validated = validate_password_reset(data, correlation_id=context.correlation_id)
+            store, notifier = self._recovery_components(context)
+            try:
+                recovery_id, user_id = store.claim_reset(validated.reset_token)
+            except RecoveryProofRejected as error:
+                raise ApplicationError.with_code(ErrorCode.RECOVERY_PROOF_REJECTED, correlation_id=context.correlation_id, cause=error) from error
+            try:
+                user = self.users.get_by_id(user_id)
+                if user is None:
+                    raise ApplicationError.with_code(ErrorCode.RECOVERY_PROOF_REJECTED, correlation_id=context.correlation_id)
+                updated = self.users.replace_password(user_id, self._hash_password(validated.new_password))
+                if updated is None:
+                    raise ApplicationError.with_code(ErrorCode.RECOVERY_PROOF_REJECTED, correlation_id=context.correlation_id)
+                if self.transaction is not None:
+                    self.transaction.commit()
+            except BaseException:
+                if self.transaction is not None:
+                    try:
+                        self.transaction.rollback()
+                    except BaseException:
+                        pass
+                store.finish_reset(recovery_id, completed=False)
+                raise
+            store.finish_reset(recovery_id, completed=True)
+            try:
+                notifier.send_password_changed(recipient=updated.email, recovery_id=recovery_id)
+            except ResendNotificationError:
+                pass
+            return PasswordResetOutput(completed_at=datetime.now(timezone.utc))
 
         return self._execute(context, context.operation, work, actor_required=False)
 
@@ -197,6 +322,11 @@ class UserService(ServiceBase):
             actor_required=True,
         )
 
+    def _recovery_components(self, context: ExecutionContext) -> tuple[PasswordRecoveryStore, PasswordRecoveryNotifier]:
+        if self.password_recovery_store is None or self.password_recovery_notifier is None:
+            raise ApplicationError.with_code(ErrorCode.RECOVERY_UNAVAILABLE, correlation_id=context.correlation_id)
+        return self.password_recovery_store, self.password_recovery_notifier
+
     def _hash_password(self, password: str) -> str:
         component = self.password_hasher
         if component is None:
@@ -235,11 +365,11 @@ class UserService(ServiceBase):
                 return result
         raise TypeError("password verification component is not callable")
 
-    def _issue_access_token(self, user_id: int):
+    def _issue_access_token(self, user_id: int, auth_version: int = 1):
         provider = self.access_token_provider
         if provider is None:
             raise RuntimeError("access-token provider is not configured")
-        issued = provider.issue(user_id)
+        issued = provider.issue(user_id, auth_version)
         token = getattr(issued, "access_token", None)
         expires_at = getattr(issued, "expires_at", None)
         if type(token) is not str or not token or expires_at is None:

@@ -18,7 +18,8 @@ CREATE TABLE users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role_id INT NOT NULL REFERENCES roles(id),
-    active BOOLEAN NOT NULL DEFAULT TRUE
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0)
 );
 
 

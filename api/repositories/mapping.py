@@ -39,7 +39,7 @@ def address(row):
 
 
 def role(row): return Role(_v(row, "id"), RoleName.from_sql(_v(row, "name")))
-def user(row): return User(_v(row, "id"), _v(row, "first_name"), _v(row, "last_name"), _v(row, "email"), _v(row, "password_hash"), _v(row, "role_id"), _v(row, "active"))
+def user(row): return User(_v(row, "id"), _v(row, "first_name"), _v(row, "last_name"), _v(row, "email"), _v(row, "password_hash"), _v(row, "role_id"), _v(row, "active"), _v(row, "auth_version"))
 def crew(row): return Crew(_v(row, "id"), _v(row, "name"))
 def crew_member(row): return CrewMember(_v(row, "user_id"), _v(row, "crew_id"))
 def priority(row): return Priority(_v(row, "id"), PriorityName.from_sql(_v(row, "name")))

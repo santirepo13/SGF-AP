@@ -29,10 +29,13 @@ class ValidatedAccessToken:
     token_id: str
     issued_at: datetime
     expires_at: datetime
+    auth_version: int = 1
 
     def __post_init__(self) -> None:
         if type(self.user_id) is not int or self.user_id <= 0:
             raise ValueError("user_id must be a positive integer")
+        if type(self.auth_version) is not int or self.auth_version <= 0:
+            raise ValueError("auth_version must be a positive integer")
         if type(self.token_id) is not str or not self.token_id:
             raise ValueError("token_id must be a non-empty string")
         _ensure_utc(self.issued_at, "issued_at")

@@ -49,6 +49,25 @@ class RegistrationHttpConnector:
     def current_user(self, *, access_token: str) -> ConnectorResponse:
         return self._connector.current_user(access_token=access_token)
 
+    def request_password_recovery(self, *, email: str) -> ConnectorResponse:
+        return self._connector.request_password_recovery(email=email)
+
+    def verify_password_recovery(self, *, request_id: str, code: str) -> ConnectorResponse:
+        return self._connector.verify_password_recovery(request_id=request_id, code=code)
+
+    def complete_password_recovery(
+        self,
+        *,
+        reset_token: str,
+        new_password: str,
+        password_confirmation: str,
+    ) -> ConnectorResponse:
+        return self._connector.complete_password_recovery(
+            reset_token=reset_token,
+            new_password=new_password,
+            password_confirmation=password_confirmation,
+        )
+
     get_current_user = current_user
 
     def post_json(

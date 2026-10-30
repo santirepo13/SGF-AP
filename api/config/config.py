@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,21 @@ class AccessTokenConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class PasswordRecoveryConfig:
+    """Server-only configuration for code-based password recovery."""
+
+    enabled: bool
+    proof_secret: bytes = field(repr=False)
+    resend_api_key: str | None = field(default=None, repr=False)
+    resend_from_email: str | None = None
+    code_ttl_seconds: int = 600
+    grant_ttl_seconds: int = 300
+    max_verify_attempts: int = 5
+    resend_wait_seconds: int = 60
+    resend_timeout_seconds: int = 10
+
+
+@dataclass(frozen=True, slots=True)
 class APIConfig:
     """Server port, HTTP Basic credentials, and user access-token settings."""
 
@@ -43,6 +59,7 @@ class APIConfig:
     password: str = field(repr=False)
     actor: ActorConfig | None = None
     access_token: AccessTokenConfig | None = field(default=None, repr=False)
+    password_recovery: PasswordRecoveryConfig | None = field(default=None, repr=False)
 
     @property
     def access_token_secret(self) -> bytes:
@@ -88,12 +105,14 @@ def load_api_config(
     if not 1 <= port <= 65535:
         raise ApplicationError.invalid_value("API_PORT", "El puerto de la API debe estar entre 1 y 65535.")
 
+    access_token = _load_access_token_config(values)
     return APIConfig(
         port=port,
         user=user,
         password=password,
         actor=_load_actor_config(values),
-        access_token=_load_access_token_config(values),
+        access_token=access_token,
+        password_recovery=_load_password_recovery_config(values, access_token),
     )
 
 
@@ -140,6 +159,62 @@ def _load_access_token_config(values: Mapping[str, str]) -> AccessTokenConfig:
             "La vigencia de la credencial debe ser positiva.",
         )
     return AccessTokenConfig(secret=secret, ttl_seconds=ttl_seconds)
+
+
+def _load_password_recovery_config(
+    values: Mapping[str, str],
+    access_token: AccessTokenConfig,
+) -> PasswordRecoveryConfig:
+    """Load an optional Resend integration without exposing its credential."""
+
+    mode = values.get(
+        "PASSWORD_RECOVERY_EMAIL_MODE",
+        "provider" if values.get("RESEND_API_KEY") else "disabled",
+    ).strip().casefold()
+    if mode not in {"disabled", "provider"}:
+        raise ApplicationError.invalid_value("PASSWORD_RECOVERY_EMAIL_MODE", "El modo de recuperación no es válido.")
+
+    def positive(name: str, default: int) -> int:
+        raw = values.get(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise ApplicationError.invalid_value(name, "El valor debe ser un entero positivo.", cause=error) from error
+        if value <= 0:
+            raise ApplicationError.invalid_value(name, "El valor debe ser un entero positivo.")
+        return value
+
+    proof_source = values.get("PASSWORD_RECOVERY_PROOF_SECRET", "")
+    if proof_source:
+        try:
+            proof_secret = bytes.fromhex(proof_source)
+        except ValueError as error:
+            raise ApplicationError.invalid_value("PASSWORD_RECOVERY_PROOF_SECRET", "El secreto debe estar codificado en hexadecimal.", cause=error) from error
+        if len(proof_secret) < 32:
+            raise ApplicationError.invalid_value("PASSWORD_RECOVERY_PROOF_SECRET", "El secreto debe tener al menos 32 bytes.")
+    else:
+        # Domain separation keeps the recovery proof distinct while preserving a
+        # small deployment configuration surface for the initial integration.
+        proof_secret = hashlib.sha256(access_token.secret + b"sgf-ap/password-recovery").digest()
+
+    api_key = values.get("RESEND_API_KEY", "")
+    from_email = values.get("RESEND_FROM_EMAIL", "SGF-AP <onboarding@resend.dev>").strip()
+    if mode == "provider" and (not api_key or not from_email):
+        raise ApplicationError.invalid_value(
+            "RESEND_API_KEY",
+            "La recuperación por correo requiere RESEND_API_KEY.",
+        )
+    return PasswordRecoveryConfig(
+        enabled=mode == "provider",
+        proof_secret=proof_secret,
+        resend_api_key=api_key or None,
+        resend_from_email=from_email or None,
+        code_ttl_seconds=positive("PASSWORD_RECOVERY_CODE_TTL_SECONDS", 600),
+        grant_ttl_seconds=positive("PASSWORD_RECOVERY_GRANT_TTL_SECONDS", 300),
+        max_verify_attempts=positive("PASSWORD_RECOVERY_MAX_VERIFY_ATTEMPTS", 5),
+        resend_wait_seconds=positive("PASSWORD_RECOVERY_RESEND_WAIT_SECONDS", 60),
+        resend_timeout_seconds=positive("RESEND_REQUEST_TIMEOUT_SECONDS", 10),
+    )
 
 
 def _load_actor_config(values: Mapping[str, str]) -> ActorConfig | None:

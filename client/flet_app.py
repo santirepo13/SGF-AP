@@ -12,6 +12,7 @@ from .authentication import AuthenticationState
 from .design_tokens import COLORS
 from .http_connector import RegistrationHttpConnector, build_registration_connector
 from .login import LoginController, LoginFormState, LoginOutput, LoginStatus
+from .password_recovery import PasswordRecoveryController, RecoveryStep
 from .navigation import NavigationController, ScreenName
 from .registration import RegistrationController, RegistrationStatus
 
@@ -35,6 +36,15 @@ class _UnavailableConnector:
 
     def current_user(self, **kwargs: str) -> object:
         raise RuntimeError("session service configuration is unavailable") from self.reason
+
+    def request_password_recovery(self, **kwargs: str) -> object:
+        raise RuntimeError("recovery service configuration is unavailable") from self.reason
+
+    def verify_password_recovery(self, **kwargs: str) -> object:
+        raise RuntimeError("recovery service configuration is unavailable") from self.reason
+
+    def complete_password_recovery(self, **kwargs: str) -> object:
+        raise RuntimeError("recovery service configuration is unavailable") from self.reason
 
 
 def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector] | None = None) -> None:
@@ -61,12 +71,15 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
     access = AccessCoordinator(authenticated, _build_access_storage(), connector)
     login: LoginController | None = None
     registration = RegistrationController(connector)
+    recovery = PasswordRecoveryController(connector)
 
     def closed(screen: ScreenName) -> None:
         if screen is ScreenName.LOGIN and login is not None:
             login.abandon()
         elif screen is ScreenName.REGISTER:
             registration.abandon()
+        elif screen is ScreenName.RECOVER_PASSWORD:
+            recovery.abandon()
 
     navigation = NavigationController(
         on_screen_closed=closed,
@@ -272,6 +285,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_current()
 
         def open_recovery(event: Any) -> None:
+            if login.state.email:
+                recovery.set_field("email", login.state.email)
             navigation.recover_password()
             render_current()
 
@@ -399,28 +414,114 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         )
 
     def render_recovery() -> None:
+        state = recovery.state
+        progress = ft.ProgressRing(width=22, height=22, visible=state.processing)
+        message = ft.Text(
+            state.message or "",
+            color=COLORS["success"].hex if state.step is RecoveryStep.COMPLETED else COLORS["error"].hex,
+            visible=bool(state.message),
+            text_align=ft.TextAlign.CENTER,
+        )
+
         def back(event: Any) -> None:
             navigation.back_to_login()
             render_current()
 
-        replace(
-            ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                spacing=14,
-                controls=[
-                    centered(ft.Text("Recuperar contraseña", size=24, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
-                    centered(
-                        ft.Text(
-                            "La recuperación de contraseña estará disponible próximamente.",
-                            color=COLORS["text_secondary"].hex,
-                            text_align=ft.TextAlign.CENTER,
-                        )
-                    ),
-                    centered(ft.TextButton("Volver al ingreso", on_click=back)),
-                ],
-            ),
-            vertically_centered=True,
-        )
+        def change(name: str):
+            def handler(event: Any) -> None:
+                value = getattr(getattr(event, "control", None), "value", "")
+                recovery.set_field(name, value if isinstance(value, str) else "")
+            return handler
+
+        async def request_code(event: Any) -> None:
+            await asyncio.to_thread(recovery.request)
+            render_recovery()
+
+        async def verify_code(event: Any) -> None:
+            await asyncio.to_thread(recovery.verify)
+            render_recovery()
+
+        async def complete_reset(event: Any) -> None:
+            await asyncio.to_thread(recovery.complete)
+            render_recovery()
+
+        def another_code(event: Any) -> None:
+            recovery.start_over()
+            render_recovery()
+
+        if state.step is RecoveryStep.REQUEST:
+            email = ft.TextField(
+                label="Correo electrónico",
+                value=state.email,
+                disabled=state.processing,
+                on_change=change("email"),
+            )
+            _apply_email_keyboard(ft, email)
+            controls = [
+                centered(ft.Text("Recuperar contraseña", size=24, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
+                centered(ft.Text("Escribe el correo de tu cuenta y te enviaremos un código.", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
+                email,
+                error_text(state.field_errors.get("email")),
+                centered(ft.Row(controls=[progress, ft.Button("Enviar código", on_click=request_code, disabled=state.processing)], alignment=ft.MainAxisAlignment.CENTER)),
+                centered(message),
+                centered(ft.TextButton("Volver al ingreso", on_click=back)),
+            ]
+        elif state.step is RecoveryStep.VERIFY:
+            code = ft.TextField(
+                label="Código de 8 dígitos",
+                value=state.code,
+                disabled=state.processing,
+                max_length=8,
+                on_change=change("code"),
+            )
+            _apply_numeric_keyboard(ft, code)
+            controls = [
+                centered(ft.Text("Código recibido por correo", size=24, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
+                centered(ft.Text("Consulta tu correo, copia el código y pégalo aquí.", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
+                code,
+                error_text(state.field_errors.get("code")),
+                centered(ft.Row(controls=[progress, ft.Button("Verificar código", on_click=verify_code, disabled=state.processing)], alignment=ft.MainAxisAlignment.CENTER)),
+                centered(message),
+                centered(ft.TextButton("Solicitar otro código", on_click=another_code)),
+                centered(ft.TextButton("Volver al ingreso", on_click=back)),
+            ]
+        elif state.step is RecoveryStep.RESET:
+            password = ft.TextField(
+                label="Nueva contraseña",
+                value=state.new_password,
+                password=True,
+                can_reveal_password=False,
+                disabled=state.processing,
+                on_change=change("new_password"),
+            )
+            confirmation = ft.TextField(
+                label="Confirmar nueva contraseña",
+                value=state.password_confirmation,
+                password=True,
+                can_reveal_password=False,
+                disabled=state.processing,
+                on_change=change("password_confirmation"),
+            )
+            _disable_password_assistance(password, ft)
+            _disable_password_assistance(confirmation, ft)
+            controls = [
+                centered(ft.Text("Establecer contraseña", size=24, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
+                password,
+                error_text(state.field_errors.get("new_password")),
+                confirmation,
+                error_text(state.field_errors.get("password_confirmation")),
+                centered(ft.Row(controls=[progress, ft.Button("Guardar contraseña", on_click=complete_reset, disabled=state.processing)], alignment=ft.MainAxisAlignment.CENTER)),
+                centered(message),
+                centered(ft.TextButton("Volver al ingreso", on_click=back)),
+            ]
+        else:
+            controls = [
+                centered(ft.Text("Contraseña establecida", size=24, weight=ft.FontWeight.BOLD, color=COLORS["primary"].hex)),
+                centered(message),
+                centered(ft.Button("Ir al ingreso", on_click=back)),
+            ]
+
+        replace(ft.Column(controls=controls, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10), vertically_centered=True)
 
     def render_role_destination(destination: ScreenName) -> None:
         session = authenticated.session
@@ -480,6 +581,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         assert login is not None
         login.abandon()
         registration.abandon()
+        recovery.abandon()
         await access.forget_process()
 
     async def on_app_lifecycle_state_change(event: Any) -> None:
@@ -522,6 +624,16 @@ def _configure_phone_preview_window(page: Any) -> None:
 
 def _apply_email_keyboard(ft: Any, field: Any) -> None:
     keyboard_type = getattr(getattr(ft, "KeyboardType", None), "EMAIL", None)
+    if keyboard_type is None:
+        return
+    try:
+        field.keyboard_type = keyboard_type
+    except (AttributeError, TypeError):
+        return
+
+
+def _apply_numeric_keyboard(ft: Any, field: Any) -> None:
+    keyboard_type = getattr(getattr(ft, "KeyboardType", None), "NUMBER", None)
     if keyboard_type is None:
         return
     try:

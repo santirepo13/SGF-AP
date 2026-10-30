@@ -36,6 +36,8 @@ class TokenIdentityProvider:
         user = self._users.get_by_id(validated.user_id)
         if user is None or getattr(user, "id", None) != validated.user_id:
             raise ApplicationError.invalid_access_token(correlation_id=self._correlation_id)
+        if getattr(user, "auth_version", 1) != validated.auth_version:
+            raise ApplicationError.invalid_access_token(correlation_id=self._correlation_id)
         role = self._roles.get_by_id(user.role_id)
         role_name = _role_name(role)
         if role_name is None or getattr(role, "id", None) != user.role_id:
