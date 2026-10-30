@@ -37,6 +37,7 @@ def response_envelopes(
             },
         },
         400: _error_response("Falta un dato obligatorio o un valor tiene formato inválido."),
+        401: _error_response("Las credenciales técnicas de la API son obligatorias o incorrectas."),
         403: _error_response("El actor está inactivo, no fue suministrado o no tiene permiso."),
         404: _error_response("El recurso o la ruta solicitada no existe."),
         405: _error_response("El método HTTP no está permitido para esta ruta."),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.contracts import (
-    AddressComponentsInput, AddressCreateInput, CrewCreateInput, CrewMemberInput,
+    AddressComponentsInput, AddressCreateInput, CitizenRegistrationInput, CrewCreateInput, CrewMemberInput,
     CrewUpdateInput, EvidenceCreateInput, HistoryEventCreateInput,
     TicketAssignmentInput, TicketAttentionInput, TicketClosureReviewInput,
     TicketCreateInput, TicketOperationInput, UserActivationInput,
@@ -40,6 +40,7 @@ def _policies() -> dict[str, OperationPolicy]:
         "UserService.get_by_id": public,
         "UserService.get_by_email": public,
         "UserService.list_by_filters": public,
+        "UserService.register_citizen": OperationPolicy(actor_required=False, permission=None, input_types=(CitizenRegistrationInput,)),
         "UserService.create": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserCreateInput,)),
         "UserService.update": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserUpdateInput,)),
         "UserService.set_active": OperationPolicy(actor_required=True, permission="manage_users", input_types=(UserActivationInput,)),

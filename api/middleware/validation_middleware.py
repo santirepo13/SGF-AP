@@ -28,6 +28,20 @@ class ValidationMiddleware:
             if isinstance(value, ExecutionContext):
                 continue
             if value is None:
+                if policy.input_types:
+                    raise ApplicationError.invalid_value(
+                        name,
+                        "La entrada no corresponde al contrato de la operación.",
+                        correlation_id=request.context.correlation_id,
+                    )
+                continue
+            if policy.input_types:
+                if not isinstance(value, policy.input_types):
+                    raise ApplicationError.invalid_value(
+                        name,
+                        "La entrada no corresponde al contrato de la operación.",
+                        correlation_id=request.context.correlation_id,
+                    )
                 continue
             expected = annotations.get(name)
             if expected in (int, str, bool) and type(value) is not expected:

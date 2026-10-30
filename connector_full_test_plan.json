@@ -1,0 +1,73 @@
+{
+  "operations": [
+    {"operation": "catalogs.list_municipalities", "save_as": "municipalities"},
+    {"operation": "catalogs.list_communes", "path_params": {"municipality_id": "$municipalities[0].id"}, "save_as": "communes"},
+    {"operation": "catalogs.list_neighborhoods_by_municipality", "path_params": {"municipality_id": "$municipalities[0].id"}, "save_as": "neighborhoods"},
+    {"operation": "catalogs.list_neighborhoods_by_commune", "path_params": {"commune_id": "$communes[0].id"}},
+    {"operation": "catalogs.list_neighborhoods_without_commune", "path_params": {"municipality_id": "$municipalities[0].id"}},
+    {"operation": "catalogs.list_road_types", "save_as": "road_types"},
+    {"operation": "catalogs.list_road_suffix_letters"},
+    {"operation": "catalogs.list_road_bis_codes"},
+    {"operation": "catalogs.list_road_quadrants"},
+    {"operation": "catalogs.list_cross_suffix_letters"},
+    {"operation": "catalogs.list_cross_bis_codes"},
+    {"operation": "catalogs.list_cross_quadrants"},
+    {"operation": "catalogs.list_roles", "save_as": "roles"},
+    {"operation": "catalogs.list_priorities"},
+    {"operation": "catalogs.list_failure_types", "save_as": "failure_types"},
+    {"operation": "catalogs.list_failure_types_by_priority", "path_params": {"priority_id": 1}},
+    {"operation": "catalogs.list_statuses"},
+    {"operation": "catalogs.list_actions"},
+
+    {"operation": "addresses.create_or_reuse", "body": {"road_type_code": "$road_types[0].code", "road_number": 997, "cross_road_number": 998, "door_plate_number": 9999}, "save_as": "address"},
+    {"operation": "addresses.find_by_components", "params": {"road_type_code": "$road_types[0].code", "road_number": 997, "cross_road_number": 998, "door_plate_number": 9999}},
+    {"operation": "addresses.get_by_id", "path_params": {"address_id": "$address.id"}},
+    {"operation": "addresses.format_address", "path_params": {"address_id": "$address.id"}},
+
+    {"operation": "users.register_citizen", "body": {"first_name": "Connector Citizen", "last_name": "Test", "email": "citizen-{run_id}@example.test", "password": "connector-test-password"}, "save_as": "citizen_user"},
+    {"operation": "users.create", "body": {"first_name": "Connector", "last_name": "Test", "email": "connector-{run_id}@example.test", "password_hash": "test-hash", "role_id": "$roles[0].id", "active": true}, "save_as": "user"},
+    {"operation": "users.get_by_id", "path_params": {"user_id": "$user.id"}},
+    {"operation": "users.get_by_email", "params": {"email": "connector-{run_id}@example.test"}},
+    {"operation": "users.list_by_filters", "params": {"email": "connector-{run_id}@example.test", "active": true}},
+    {"operation": "users.update", "path_params": {"user_id": "$user.id"}, "body": {"first_name": "Connector Updated"}},
+
+    {"operation": "crews.create", "body": {"name": "Connector {run_id}"}, "save_as": "crew"},
+    {"operation": "crews.create", "body": {"name": "Connector Destination {run_id}"}, "save_as": "destination_crew"},
+    {"operation": "crews.list_all"},
+    {"operation": "crews.get_by_id", "path_params": {"crew_id": "$crew.id"}},
+    {"operation": "crews.update", "path_params": {"crew_id": "$crew.id"}, "body": {"name": "Connector Updated {run_id}"}},
+    {"operation": "crews.add_member", "path_params": {"crew_id": "$crew.id"}, "body": {"user_id": "$user.id"}},
+    {"operation": "crews.get_membership", "path_params": {"user_id": "$user.id"}},
+    {"operation": "crews.list_members", "path_params": {"crew_id": "$crew.id"}},
+    {"operation": "crews.change_crew", "path_params": {"user_id": "$user.id"}, "body": {"crew_id": "$destination_crew.id"}},
+    {"operation": "crews.remove_member", "path_params": {"user_id": "$user.id"}},
+
+    {"operation": "tickets.create", "body": {"code": "T-{run_id}", "reported_by": "$user.id", "failure_type_id": "$failure_types[0].id", "description": "Ticket de prueba {run_id}", "address_id": "$address.id"}, "save_as": "ticket"},
+    {"operation": "tickets.list_by_filters", "params": {"reported_by": "$user.id"}},
+    {"operation": "tickets.get_by_id", "path_params": {"ticket_id": "$ticket.id"}},
+    {"operation": "tickets.get_by_code", "path_params": {"code": "T-{run_id}"}},
+    {"operation": "tickets.validate", "path_params": {"ticket_id": "$ticket.id"}},
+    {"operation": "tickets.prioritize", "path_params": {"ticket_id": "$ticket.id"}},
+    {"operation": "tickets.assign", "path_params": {"ticket_id": "$ticket.id"}, "body": {"crew_id": "$crew.id"}},
+    {"operation": "tickets.attention", "path_params": {"ticket_id": "$ticket.id"}, "body": {"diagnosis": "Diagnóstico {run_id}", "solution": "Solución {run_id}"}},
+
+    {"operation": "evidences.create_metadata", "body": {"ticket_id": "$ticket.id", "file_path": "connector/{run_id}/evidence.jpg", "captured_at": "{now}", "uploaded_by": "$user.id"}, "save_as": "evidence"},
+    {"operation": "evidences.get_by_id", "path_params": {"evidence_id": "$evidence.id"}},
+    {"operation": "evidences.list_by_ticket", "params": {"ticket_id": "$ticket.id"}},
+    {"operation": "evidences.list_by_ticket_and_uploader", "params": {"ticket_id": "$ticket.id", "uploaded_by": "$user.id"}},
+
+    {"operation": "tickets.request_closure", "path_params": {"ticket_id": "$ticket.id"}},
+    {"operation": "tickets.review_closure", "path_params": {"ticket_id": "$ticket.id"}, "body": {"decision": "Approval"}},
+
+    {"operation": "tickets.create", "body": {"code": "B-{run_id}", "reported_by": "$user.id", "failure_type_id": "$failure_types[0].id", "description": "Ticket bloqueado de prueba {run_id}"}, "save_as": "blocked_ticket"},
+    {"operation": "tickets.validate", "path_params": {"ticket_id": "$blocked_ticket.id"}},
+    {"operation": "tickets.prioritize", "path_params": {"ticket_id": "$blocked_ticket.id"}},
+    {"operation": "tickets.assign", "path_params": {"ticket_id": "$blocked_ticket.id"}, "body": {"crew_id": "$crew.id"}},
+    {"operation": "tickets.attention", "path_params": {"ticket_id": "$blocked_ticket.id"}, "body": {"diagnosis": "Diagnóstico de bloqueo {run_id}"}},
+    {"operation": "tickets.block", "path_params": {"ticket_id": "$blocked_ticket.id"}},
+
+    {"operation": "history.list_by_ticket", "params": {"ticket_id": "$ticket.id"}, "save_as": "history"},
+    {"operation": "history.get_event", "path_params": {"event_id": "$history[0].id"}},
+    {"operation": "users.set_active", "path_params": {"user_id": "$user.id"}, "body": {"active": false}}
+  ]
+}

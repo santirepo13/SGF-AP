@@ -89,17 +89,19 @@ def build_contract(
     annotations = get_type_hints(contract_type)
     arguments: dict[str, object] = {}
     for name, field in contract_fields.items():
-        value_and_source = supplied.get(name)
-        if value_and_source is None:
+        if name not in supplied:
             if field.default is not MISSING or field.default_factory is not MISSING:
                 continue
             raise ApplicationError.required_field(name, correlation_id=correlation_id)
 
-        raw_value, from_text = value_and_source
+        raw_value, from_text = supplied[name]
+        if raw_value is None:
+            if _allows_none(annotations.get(name, Any)):
+                arguments[name] = None
+                continue
+            raise ApplicationError.required_field(name, correlation_id=correlation_id)
         try:
             arguments[name] = _convert_value(raw_value, annotations.get(name, Any), from_text=from_text)
-        except ApplicationError:
-            raise
         except (TypeError, ValueError) as exc:
             raise ApplicationError.invalid_value(
                 name,

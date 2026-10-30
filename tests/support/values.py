@@ -17,6 +17,8 @@ def sample_value(annotation, field_name="", *, nullable_as_none=True):
     if annotation is int:
         return 1
     if annotation is str:
+        if field_name == "email":
+            return "sample@example.test"
         return "Approval" if field_name in {"decision", "action"} else "x"
     if annotation is bool:
         return True

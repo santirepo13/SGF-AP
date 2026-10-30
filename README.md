@@ -18,8 +18,11 @@ La implementación actual contiene la base técnica de la API:
 - Configuración de PostgreSQL mediante `api/.env`.
 - Fábrica FastAPI, composición de dependencias y punto de entrada ASGI con Uvicorn.
 - Pruebas pytest y ejecutor acumulado `tests/coverage.py`.
+- Registro ciudadano mediante `POST /users/register`, con contrato estricto, hash Argon2id, autorización técnica y respuesta pública común.
+- Componentes de cliente en `client/` para configuración empaquetada, conector y estado del formulario Android.
+- Interfaz móvil Flet en `main.py`, con preview en tiempo real y empaquetado Android mediante `flet build apk`.
 
-El alcance funcional incluye registro y seguimiento de reportes, validación, control de duplicados, priorización, asignación, intervención, evidencias, cierre, historial, indicadores y administración. Algunas de esas funciones todavía requieren rutas HTTP y componentes de producto adicionales. Actualmente el servidor se utiliza para verificar el arranque, la configuración y la conexión a PostgreSQL; no hay rutas de negocio públicas configuradas, por lo que las solicitudes HTTP devuelven `404`.
+El alcance funcional incluye registro y seguimiento de reportes, validación, control de duplicados, priorización, asignación, intervención, evidencias, cierre, historial, indicadores y administración. La ruta de registro ciudadano está disponible en `POST /users/register`; las demás funciones pueden requerir rutas HTTP y componentes de producto adicionales.
 
 ## Estructura principal
 
@@ -38,6 +41,11 @@ api/
 ├── services/        Servicios de aplicación
 ├── sgfap_api.py     Fábrica FastAPI y ciclo de vida
 └── main.py          Punto de entrada ASGI
+
+client/                Estado, diseño y conector del cliente Android
+main.py                Punto de entrada Flet para preview y APK
+pyproject.toml         Dependencias y configuración de empaquetado Flet
+android/               Recursos Android y configuración de build heredada
 
 db/                  Scripts SQL
 docs/                Documentos de requisitos y pruebas
@@ -78,7 +86,7 @@ python -m pip install -r api/requirements.txt
 python -m pip install -r tests/requirements.txt
 ```
 
-`api/requirements.txt` contiene `fastapi`, `uvicorn[standard]`, `psycopg[binary]` y `python-dotenv`. `tests/requirements.txt` contiene las dependencias de pruebas, incluido `pytest`.
+`api/requirements.txt` contiene `fastapi`, `uvicorn[standard]`, `psycopg[binary]`, `python-dotenv` y `argon2-cffi`. `tests/requirements.txt` contiene las dependencias de pruebas, incluido `pytest`. Para el cliente Flet, instalar además `mobile/requirements.txt` o usar las dependencias de `pyproject.toml`.
 
 ## Configurar PostgreSQL
 
@@ -106,7 +114,22 @@ python -m uvicorn api.main:app --host 0.0.0.0 --port 8002 --log-level info
 
 La dirección local es `http://localhost:8002`. Durante el startup la aplicación carga y valida `api/.env`, prepara el proveedor PostgreSQL y verifica la disponibilidad con `SELECT 1` mediante una conexión temporal, que se cierra antes de atender solicitudes. Cada operación abre y libera su propia conexión; los repositorios y el coordinador de transacciones de esa operación comparten la misma conexión. Para detenerla, presiona `Ctrl+C`.
 
-Los grupos de rutas se registran de forma centralizada. Los endpoints HTTP funcionales se incorporarán en los scrums posteriores; por ahora las solicitudes HTTP devuelven `404`.
+Los grupos de rutas se registran de forma centralizada. El registro ciudadano está disponible en `POST /users/register`; los demás endpoints funcionales se incorporarán en scrums posteriores.
+
+## Preview móvil en tiempo real
+
+La interfaz Flet parte de `main.py` y permite ver cambios guardados en una ventana,
+en el navegador o en un teléfono Android:
+
+```powershell
+python -m pip install -r mobile\requirements.txt
+flet run --recursive --ignore-dirs .venv,tests,traceability_tests main.py
+flet run --android main.py
+```
+
+Para generar un APK, consulta `mobile/README.md`. Antes de empaquetar, define las
+credenciales técnicas solo en el entorno de build.
+
 
 ## Ejecutar las pruebas
 

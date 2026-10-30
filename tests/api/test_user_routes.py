@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from fastapi import FastAPI
 
-from api.contracts import UNSET, UserActivationInput, UserCreateInput, UserFilters, UserUpdateInput
+from api.contracts import CitizenRegistrationInput, UNSET, UserActivationInput, UserCreateInput, UserFilters, UserUpdateInput
 from api.routes.users.user_routes import router
 
 
@@ -145,13 +145,36 @@ def test_user_write_routes_build_create_update_and_activation_contracts() -> Non
     assert activation_data == UserActivationInput(user_id=7, active=False)
 
 
-def test_user_router_documents_six_operations_and_public_contracts() -> None:
+def test_registration_route_builds_the_public_contract() -> None:
+    adapter = RecordingAdapter()
+
+    result = asyncio.run(
+        _ROUTES["register_citizen"](
+            request=JsonRequest(
+                b'{"first_name":"Ana","last_name":"Gomez","email":"ana@example.test",'
+                b'"password":"exact password"}'
+            ),
+            user_service=object(),
+            adapter=adapter,
+            correlation_id="corr-register",
+        )
+    )
+
+    assert result == "UserService.register_citizen"
+    _, operation, _, (data,) = adapter.calls[0]
+    assert operation.name == "UserService.register_citizen"
+    assert isinstance(data, CitizenRegistrationInput)
+    assert data.password == "exact password"
+
+
+def test_user_router_documents_seven_operations_and_public_contracts() -> None:
     application = FastAPI()
     application.include_router(router)
     document = application.openapi()
 
     assert set(document["paths"]) == {
         "/users/by-email",
+        "/users/register",
         "/users",
         "/users/{user_id}",
         "/users/{user_id}/activation",
@@ -160,6 +183,10 @@ def test_user_router_documents_six_operations_and_public_contracts() -> None:
     assert set(document["paths"]["/users/{user_id}"]) == {"get", "patch"}
     assert "patch" in document["paths"]["/users/{user_id}/activation"]
     assert "requestBody" in document["paths"]["/users"]["post"]
+    register_body = document["paths"]["/users/register"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert register_body["additionalProperties"] is False
+    assert register_body["properties"]["password"]["writeOnly"] is True
+    assert document["paths"]["/users/register"]["post"]["security"] == [{"HTTPBasic": []}]
     assert "password_hash" not in document["paths"]["/users"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["properties"]["data"]["properties"]
     update_body = document["paths"]["/users/{user_id}"]["patch"]["requestBody"]["content"]["application/json"]["schema"]
     activation_body = document["paths"]["/users/{user_id}/activation"]["patch"]["requestBody"]["content"]["application/json"]["schema"]
@@ -177,4 +204,4 @@ def test_user_router_documents_six_operations_and_public_contracts() -> None:
     assert "201" in document["paths"]["/users"]["post"]["responses"]
     for path_item in document["paths"].values():
         for operation in path_item.values():
-            assert set(("400", "403", "404", "405", "409", "422", "500")) <= set(operation["responses"])
+            assert set(("400", "401", "403", "404", "405", "409", "422", "500")) <= set(operation["responses"])
