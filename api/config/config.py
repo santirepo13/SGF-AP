@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
 from api.errors import ApplicationError
+
+_RESEND_FROM_EMAIL_PATTERN = re.compile(r"^SGF-AP <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,11 +201,16 @@ def _load_password_recovery_config(
         proof_secret = hashlib.sha256(access_token.secret + b"sgf-ap/password-recovery").digest()
 
     api_key = values.get("RESEND_API_KEY", "")
-    from_email = values.get("RESEND_FROM_EMAIL", "SGF-AP <onboarding@resend.dev>").strip()
-    if mode == "provider" and (not api_key or not from_email):
+    from_email = values.get("RESEND_FROM_EMAIL", "").strip()
+    if mode == "provider" and not api_key:
         raise ApplicationError.invalid_value(
             "RESEND_API_KEY",
             "La recuperación por correo requiere RESEND_API_KEY.",
+        )
+    if mode == "provider" and _RESEND_FROM_EMAIL_PATTERN.fullmatch(from_email) is None:
+        raise ApplicationError.invalid_value(
+            "RESEND_FROM_EMAIL",
+            "Debe usar el formato SGF-AP <no-reply@dominio-verificado>.",
         )
     return PasswordRecoveryConfig(
         enabled=mode == "provider",
