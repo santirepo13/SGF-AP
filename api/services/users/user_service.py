@@ -209,8 +209,9 @@ class UserService(ServiceBase):
                     )
                 except ResendNotificationError as error:
                     logger.warning(
-                        "password_recovery_delivery_failed status=%s correlation_id=%s",
+                        "password_recovery_delivery_failed status=%s reason=%s correlation_id=%s",
                         error.status_code if error.status_code is not None else "unavailable",
+                        error.reason or "unavailable",
                         context.correlation_id,
                     )
             return PasswordRecoveryRequestOutput(

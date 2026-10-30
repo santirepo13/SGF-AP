@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 import json
+import re
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -18,9 +19,16 @@ class PasswordRecoveryNotifier(Protocol):
 class ResendNotificationError(RuntimeError):
     """Provider failure without request bodies, email addresses, or secrets."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        reason: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.reason = reason
 
 
 class ResendPasswordRecoveryNotifier:
@@ -81,9 +89,26 @@ class ResendPasswordRecoveryNotifier:
                 if not 200 <= response.status < 300:
                     raise ResendNotificationError("email provider rejected the request")
         except HTTPError as error:
-            raise ResendNotificationError("email provider rejected the request", status_code=error.code) from error
+            raise ResendNotificationError(
+                "email provider rejected the request",
+                status_code=error.code,
+                reason=_safe_provider_reason(error),
+            ) from error
         except (URLError, OSError, TimeoutError) as error:
             raise ResendNotificationError("email provider is unavailable") from error
+
+
+def _safe_provider_reason(error: HTTPError) -> str:
+    """Keep a short, redacted Resend reason for server-only diagnosis."""
+
+    try:
+        raw = error.read().decode("utf-8", "replace")
+        data = json.loads(raw)
+        value = data.get("message", data.get("name", "provider rejected the request")) if isinstance(data, dict) else raw
+    except BaseException:
+        value = "provider rejected the request"
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>", str(value))
+    return " ".join(text.split())[:240] or "provider rejected the request"
 
 
 __all__ = ["PasswordRecoveryNotifier", "ResendNotificationError", "ResendPasswordRecoveryNotifier"]
