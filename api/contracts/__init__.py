@@ -37,6 +37,16 @@ from .geolocation.geolocation_types import (
     NeighborhoodLookupInput,
     NeighborhoodOutput,
 )
+from .tickets.citizen_ticket_types import (
+    CitizenAttemptLookupInput,
+    CitizenAttemptOutput,
+    CitizenMatchInput,
+    CitizenMatchOutput,
+    CitizenMatchesOutput,
+    CitizenTicketConfirmation,
+    CitizenTicketCreateInput,
+    CitizenTicketRegistrationOutput,
+)
 from .tickets.evidence_types import EvidenceCreateInput, EvidenceOutput, EvidenceLookupInput
 from .tickets.history_event_types import HistoryEventCreateInput, HistoryEventLookupInput, HistoryEventOutput
 from .operation_result import OperationResult
@@ -47,6 +57,7 @@ from .tickets.ticket_types import (
     TicketCodeLookupInput,
     TicketCreateInput,
     TicketFilters,
+    TicketInsertInput,
     TicketUpdateInput,
     TicketLookupInput,
     TicketOperationInput,
@@ -118,6 +129,14 @@ __all__ = [
     "NeighborhoodByIdInput",
     "NeighborhoodLookupInput",
     "NeighborhoodOutput",
+    "CitizenAttemptLookupInput",
+    "CitizenAttemptOutput",
+    "CitizenMatchInput",
+    "CitizenMatchOutput",
+    "CitizenMatchesOutput",
+    "CitizenTicketConfirmation",
+    "CitizenTicketCreateInput",
+    "CitizenTicketRegistrationOutput",
     "EvidenceCreateInput",
     "EvidenceLookupInput",
     "EvidenceOutput",
@@ -131,6 +150,7 @@ __all__ = [
     "TicketCodeLookupInput",
     "TicketCreateInput",
     "TicketFilters",
+    "TicketInsertInput",
     "TicketUpdateInput",
     "TicketLookupInput",
     "TicketOperationInput",

@@ -20,7 +20,7 @@ Los enums y miembros se exportan desde api.enums.
 | RoleName | Citizen, Operator, Coordinator, Crew, Admin |
 | PriorityName | High, Standard |
 | StatusName | Registered, Validated, Prioritized, Assigned, InProgress, Blocked, PendingClosure, Resolved |
-| ActionName | Registration, Validation, Prioritization, Assignment, Attention, Blockage, ClosureRequest, Approval, Rejection |
+| ActionName | Registration, Validation, Prioritization, Assignment, Attention, Blockage, Unblock, ClosureRequest, Approval, Rejection |
 
 ## Uso
 

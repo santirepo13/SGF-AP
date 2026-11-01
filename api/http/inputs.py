@@ -42,6 +42,13 @@ async def read_json_object(request: Request, *, correlation_id: str | None = Non
     """Read a JSON object while translating malformed transport data safely."""
 
     body = await request.body()
+    maximum = _maximum_json_body_bytes(request)
+    if maximum is not None and len(body) > maximum:
+        raise ApplicationError.invalid_value(
+            None,
+            "El cuerpo de la solicitud supera el límite permitido.",
+            correlation_id=correlation_id,
+        )
     if not body:
         return {}
     try:
@@ -60,6 +67,17 @@ async def read_json_object(request: Request, *, correlation_id: str | None = Non
             correlation_id=correlation_id,
         )
     return value
+
+
+def _maximum_json_body_bytes(request: Request) -> int | None:
+    path = getattr(getattr(request, "url", None), "path", "")
+    if not isinstance(path, str) or not path.startswith("/tickets/citizen"):
+        return None
+    application = getattr(request, "app", None)
+    config = getattr(getattr(application, "state", None), "api_config", None)
+    citizen_ticket = getattr(config, "citizen_ticket", None)
+    maximum = getattr(citizen_ticket, "json_body_max_bytes", 65_536)
+    return maximum if type(maximum) is int and maximum > 0 else 65_536
 
 
 def build_contract(

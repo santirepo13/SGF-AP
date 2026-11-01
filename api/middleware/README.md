@@ -81,7 +81,7 @@ Operaciones públicas de consulta no requieren actor. Las escrituras y operacion
 | manage_users | UserService.create, update, set_active |
 | manage_crews | CrewService.create, update, add_member, change_crew, remove_member |
 | create_ticket | TicketService.create |
-| process_tickets | TicketService.validate, prioritize, assign, record_attention, block, request_closure, review_closure |
+| process_tickets | TicketService.validate, prioritize, assign, record_attention, block, unblock, request_closure, review_closure |
 | create_evidence | EvidenceService.create_metadata |
 | create_history_event | HistoryService.create_event |
 

@@ -9,6 +9,7 @@ import json
 import socket
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from config import ConnectorConfig
@@ -132,6 +133,30 @@ class RegistrationTransport:
 
         access_token = self._supplied_access_token() if requires_identity else None
         return self._request("POST", path, body_values=body_values, access_token=access_token)
+
+    def get_json(
+        self,
+        path: str,
+        query_values: Mapping[str, object] | None = None,
+        *,
+        requires_identity: bool = False,
+    ) -> ConnectorResponse:
+        """Send one GET request without placing credentials in a query string."""
+
+        if query_values:
+            query = urlencode(
+                {
+                    name: value
+                    for name, value in query_values.items()
+                    if value is not None
+                },
+                doseq=True,
+            )
+            if query:
+                separator = "&" if "?" in path else "?"
+                path = f"{path}{separator}{query}"
+        access_token = self._supplied_access_token() if requires_identity else None
+        return self._request("GET", path, access_token=access_token)
 
     def _supplied_access_token(self) -> str:
         access_token = self._access_token_supplier() if self._access_token_supplier is not None else None

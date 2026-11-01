@@ -19,3 +19,15 @@ class AddressRepository(RepositoryBase):
         values = tuple(getattr(data, name) for name in names)
         placeholders = ", ".join(["%s"] * len(names))
         return self.execute_one(f"INSERT INTO addresses ({_COMPONENTS}) VALUES ({placeholders}) RETURNING {_COLUMNS}", values, operation="addresses.create", entity="address", mapper=address)
+
+    def create_if_absent(self, data: AddressCreateInput):
+        names = _COMPONENTS.split(", ")
+        values = tuple(getattr(data, name) for name in names)
+        placeholders = ", ".join(["%s"] * len(names))
+        return self.execute_one(
+            f"INSERT INTO addresses ({_COMPONENTS}) VALUES ({placeholders}) ON CONFLICT DO NOTHING RETURNING {_COLUMNS}",
+            values,
+            operation="addresses.create_if_absent",
+            entity="address",
+            mapper=address,
+        )

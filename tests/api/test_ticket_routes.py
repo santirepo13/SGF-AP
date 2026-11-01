@@ -128,6 +128,7 @@ def test_ticket_write_routes_build_create_and_processing_contracts() -> None:
         ("validate", "TicketService.validate"),
         ("prioritize", "TicketService.prioritize"),
         ("block", "TicketService.block"),
+        ("unblock", "TicketService.unblock"),
         ("request_closure", "TicketService.request_closure"),
     ):
         adapter = RecordingAdapter()
@@ -221,7 +222,7 @@ def test_ticket_review_rejects_an_unsupported_decision_during_input_adaptation()
     assert raised.value.details[0].field == "decision"
 
 
-def test_ticket_router_documents_eleven_operations_inputs_filters_and_output_contract() -> None:
+def test_ticket_router_documents_twelve_operations_inputs_filters_and_output_contract() -> None:
     application = FastAPI()
     application.include_router(router)
     document = application.openapi()
@@ -235,13 +236,14 @@ def test_ticket_router_documents_eleven_operations_inputs_filters_and_output_con
         "/tickets/{ticket_id}/assign",
         "/tickets/{ticket_id}/attention",
         "/tickets/{ticket_id}/block",
+        "/tickets/{ticket_id}/unblock",
         "/tickets/{ticket_id}/request-closure",
         "/tickets/{ticket_id}/review-closure",
     }
     assert set(document["paths"]["/tickets"]) == {"get", "post"}
     assert set(document["paths"]["/tickets/by-code/{code}"]) == {"get"}
     assert set(document["paths"]["/tickets/{ticket_id}"]) == {"get"}
-    for suffix in ("validate", "prioritize", "assign", "attention", "block", "request-closure", "review-closure"):
+    for suffix in ("validate", "prioritize", "assign", "attention", "block", "unblock", "request-closure", "review-closure"):
         assert set(document["paths"][f"/tickets/{{ticket_id}}/{suffix}"]) == {"post"}
 
     list_parameters = {
@@ -275,7 +277,7 @@ def test_ticket_router_documents_eleven_operations_inputs_filters_and_output_con
     assert review_body["required"] == ["decision"]
     assert review_body["properties"]["decision"]["enum"] == ["Approval", "Rejection"]
 
-    no_body_operations = ("validate", "prioritize", "block", "request-closure")
+    no_body_operations = ("validate", "prioritize", "block", "unblock", "request-closure")
     for suffix in no_body_operations:
         operation = document["paths"][f"/tickets/{{ticket_id}}/{suffix}"]["post"]
         assert "requestBody" not in operation

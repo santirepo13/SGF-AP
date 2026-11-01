@@ -54,6 +54,20 @@ class PasswordRecoveryConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CitizenTicketConfig:
+    """Validated server limits for the citizen report contract."""
+
+    description_max_length: int = 4_000
+    json_body_max_bytes: int = 65_536
+
+    def __post_init__(self) -> None:
+        if type(self.description_max_length) is not int or self.description_max_length <= 0:
+            raise ValueError("citizen ticket description maximum must be positive")
+        if type(self.json_body_max_bytes) is not int or self.json_body_max_bytes <= 0:
+            raise ValueError("citizen ticket JSON maximum must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class APIConfig:
     """Server port, HTTP Basic credentials, and user access-token settings."""
 
@@ -63,6 +77,7 @@ class APIConfig:
     actor: ActorConfig | None = None
     access_token: AccessTokenConfig | None = field(default=None, repr=False)
     password_recovery: PasswordRecoveryConfig | None = field(default=None, repr=False)
+    citizen_ticket: CitizenTicketConfig = field(default_factory=CitizenTicketConfig)
 
     @property
     def access_token_secret(self) -> bytes:
@@ -116,6 +131,7 @@ def load_api_config(
         actor=_load_actor_config(values),
         access_token=access_token,
         password_recovery=_load_password_recovery_config(values, access_token),
+        citizen_ticket=_load_citizen_ticket_config(values),
     )
 
 
@@ -162,6 +178,25 @@ def _load_access_token_config(values: Mapping[str, str]) -> AccessTokenConfig:
             "La vigencia de la credencial debe ser positiva.",
         )
     return AccessTokenConfig(secret=secret, ttl_seconds=ttl_seconds)
+
+
+def _load_citizen_ticket_config(values: Mapping[str, str]) -> CitizenTicketConfig:
+    """Load bounded citizen-report limits without accepting zero or negatives."""
+
+    def positive(name: str, default: int) -> int:
+        raw = values.get(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise ApplicationError.invalid_value(name, "El valor debe ser un entero positivo.", cause=error) from error
+        if value <= 0:
+            raise ApplicationError.invalid_value(name, "El valor debe ser un entero positivo.")
+        return value
+
+    return CitizenTicketConfig(
+        description_max_length=positive("CITIZEN_TICKET_DESCRIPTION_MAX_LENGTH", 4_000),
+        json_body_max_bytes=positive("CITIZEN_TICKET_JSON_BODY_MAX_BYTES", 65_536),
+    )
 
 
 def _load_password_recovery_config(

@@ -119,6 +119,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             password_recovery_store=password_recovery_store,
             password_recovery_notifier=password_recovery_notifier,
             password_recovery_code_ttl_seconds=(recovery_config.code_ttl_seconds if recovery_config is not None else 600),
+            citizen_description_max_length=application.state.api_config.citizen_ticket.description_max_length,
         )
         application.state.http_adapter = HttpOperationAdapter()
         logger.info("application_dependencies_prepared")

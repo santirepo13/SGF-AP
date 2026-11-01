@@ -65,6 +65,19 @@ class ApplicationError(Exception):
         return cls(ErrorCode.UNIQUE_CONFLICT, details, correlation_id, cause)
 
     @classmethod
+    def operation_key_reused(cls, *, correlation_id: str | None = None) -> "ApplicationError":
+        return cls(ErrorCode.OPERATION_KEY_REUSED, correlation_id=correlation_id)
+
+    @classmethod
+    def result_unknown(cls, *, correlation_id: str | None = None, cause: BaseException | None = None) -> "ApplicationError":
+        return cls(
+            ErrorCode.PERSISTENCE_FAILURE,
+            (ErrorDetail(None, None, "result_unknown"),),
+            correlation_id,
+            cause,
+        )
+
+    @classmethod
     def inactive_user(cls, *, correlation_id: str | None = None) -> "ApplicationError":
         return cls(ErrorCode.INACTIVE_USER, correlation_id=correlation_id)
 

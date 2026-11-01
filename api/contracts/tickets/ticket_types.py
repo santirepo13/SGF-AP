@@ -23,6 +23,27 @@ class TicketCreateInput:
 
 
 @dataclass(frozen=True)
+class TicketInsertInput:
+    """Internal ticket insert with a status resolved by the server."""
+
+    code: str
+    reported_by: int
+    failure_type_id: int
+    description: str
+    status_id: int
+    address_id: int | None = None
+    priority_id: int | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    diagnosis: str | None = None
+    solution: str | None = None
+    crew_id: int | None = None
+
+    def __post_init__(self) -> None:
+        ensure_length(self.code, 24, "code")
+
+
+@dataclass(frozen=True)
 class TicketFilters:
     reported_by: int | None = None
     failure_type_id: int | None = None
