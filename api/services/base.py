@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 from typing import Any, Generic, TypeVar
 
 from api.contracts import ExecutionContext, OperationResult
 from api.errors import ApplicationError, ErrorHandler
 
 T = TypeVar("T")
+logger = logging.getLogger("sgf_ap.api")
 
 
 class TransactionCoordinator:
@@ -46,6 +48,13 @@ class ServiceBase:
                 raise ApplicationError.forbidden(operation, correlation_id=context.correlation_id)
             value = action()
         except BaseException as exc:
+            if not isinstance(exc, ApplicationError):
+                logger.exception(
+                    "service_operation_failed operation=%s correlation_id=%s exception_type=%s",
+                    operation,
+                    context.correlation_id,
+                    type(exc).__name__,
+                )
             if write:
                 self._rollback()
             return self._failure(exc, context)
