@@ -144,7 +144,15 @@ class StructuredExecutionLogger:
         self._logger.info("operation_started", extra=_safe_log_fields(record))
 
     def finish(self, record: dict[str, Any]) -> None:
-        self._logger.info("operation_finished", extra=_safe_log_fields(record))
+        error_code = getattr(record.get("error_code"), "value", record.get("error_code"))
+        self._logger.info(
+            "operation_finished operation=%s correlation_id=%s success=%s error_code=%s",
+            record.get("operation"),
+            record.get("correlation_id"),
+            record.get("success"),
+            error_code,
+            extra=_safe_log_fields(record),
+        )
 
 
 @dataclass(slots=True)
