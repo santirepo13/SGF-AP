@@ -44,7 +44,7 @@ CREATE TABLE actions (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE CHECK (name IN (
         'Registration','Validation','Prioritization','Assignment','Attention',
-        'Blockage','ClosureRequest','Approval','Rejection'
+        'Blockage','Unblock','ClosureRequest','Approval','Rejection'
     ))
 );
 
@@ -55,6 +55,7 @@ INSERT INTO actions (name) VALUES
     ('Assignment'),
     ('Attention'),
     ('Blockage'),
+    ('Unblock'),
     ('ClosureRequest'),
     ('Approval'),
     ('Rejection');
@@ -92,3 +93,23 @@ CREATE TABLE history_events (
     action_id INT NOT NULL REFERENCES actions(id),
     event_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE operation_attempts (
+    actor_user_id INT NOT NULL REFERENCES users(id),
+    operation VARCHAR(128) NOT NULL,
+    request_key VARCHAR(128) NOT NULL,
+    request_digest CHAR(64) NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
+    result_payload JSONB NOT NULL,
+    committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (actor_user_id, operation, request_key)
+);
+
+CREATE TABLE ticket_match_guards (
+    scope_type VARCHAR(16) NOT NULL CHECK (scope_type = 'address'),
+    scope_id INT NOT NULL REFERENCES addresses(id),
+    failure_type_id INT NOT NULL REFERENCES failure_types(id),
+    PRIMARY KEY (scope_type, scope_id, failure_type_id)
+);
+
+CREATE INDEX tickets_open_match_lookup_idx
+    ON tickets (address_id, failure_type_id, status_id, created_at DESC, code ASC);

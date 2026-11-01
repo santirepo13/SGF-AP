@@ -8,6 +8,7 @@ class ActionName(SqlEnum):
     ASSIGNMENT = "Assignment"
     ATTENTION = "Attention"
     BLOCKAGE = "Blockage"
+    UNBLOCK = "Unblock"
     CLOSURE_REQUEST = "ClosureRequest"
     APPROVAL = "Approval"
     REJECTION = "Rejection"

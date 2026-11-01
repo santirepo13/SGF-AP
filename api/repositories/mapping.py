@@ -1,10 +1,12 @@
 """Explicit row-to-model mappers used by the repositories."""
 
+import json
+
 from api.enums import ActionName, PriorityName, RoleName, StatusName
 from api.models import (
     Action, Address, Commune, Crew, CrewMember, Evidence, FailureType,
-    HistoryEvent, Municipality, Neighborhood, Priority, Role, Status, Ticket,
-    User,
+    HistoryEvent, Municipality, Neighborhood, OpenTicketMatch, OperationAttempt, Priority, Role, Status,
+    Ticket, User,
 )
 from api.models.address.addresses import (
     CrossBisCode, CrossQuadrant, CrossSuffixLetter, RoadBisCode, RoadQuadrant,
@@ -56,5 +58,30 @@ def ticket(row):
     )})
 
 
+def open_ticket_match(row):
+    return OpenTicketMatch(
+        id=_v(row, "id"),
+        code=_v(row, "code"),
+        status=_v(row, "status"),
+        created_at=_v(row, "created_at"),
+    )
+
+
 def evidence(row): return Evidence(_v(row, "id"), _v(row, "ticket_id"), _v(row, "file_path"), _v(row, "captured_at"), _v(row, "uploaded_by"))
 def history_event(row): return HistoryEvent(_v(row, "id"), _v(row, "ticket_id"), _v(row, "user_id"), _v(row, "action_id"), _v(row, "event_time"))
+
+
+def operation_attempt(row):
+    payload = _v(row, "result_payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        raise ValueError("operation attempt result_payload must be a JSON object")
+    return OperationAttempt(
+        actor_user_id=_v(row, "actor_user_id"),
+        operation=_v(row, "operation"),
+        request_key=_v(row, "request_key"),
+        request_digest=_v(row, "request_digest"),
+        result_payload=payload,
+        committed_at=_v(row, "committed_at"),
+    )

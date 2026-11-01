@@ -79,6 +79,15 @@ class RegistrationHttpConnector:
     ) -> ConnectorResponse:
         return self._connector.post_json(path, body_values, requires_identity=requires_identity)
 
+    def get_json(
+        self,
+        path: str,
+        query_values: Mapping[str, object] | None = None,
+        *,
+        requires_identity: bool = False,
+    ) -> ConnectorResponse:
+        return self._connector.get_json(path, query_values, requires_identity=requires_identity)
+
 
 LoginHttpConnector = RegistrationHttpConnector
 

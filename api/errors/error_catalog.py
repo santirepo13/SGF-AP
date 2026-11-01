@@ -22,6 +22,7 @@ _DEFINITIONS: dict[ErrorCode, ErrorDefinition] = {
     ErrorCode.RESOURCE_NOT_FOUND: ErrorDefinition(ErrorCode.RESOURCE_NOT_FOUND, "Recurso", "No se encontró el registro solicitado."),
     ErrorCode.INVALID_REFERENCE: ErrorDefinition(ErrorCode.INVALID_REFERENCE, "Relación", "Una referencia indicada no existe o no corresponde al registro relacionado."),
     ErrorCode.UNIQUE_CONFLICT: ErrorDefinition(ErrorCode.UNIQUE_CONFLICT, "Conflicto", "Ya existe un registro con los datos que deben ser únicos."),
+    ErrorCode.OPERATION_KEY_REUSED: ErrorDefinition(ErrorCode.OPERATION_KEY_REUSED, "Conflicto", "El identificador del intento ya se utilizó con otros datos."),
     ErrorCode.INACTIVE_USER: ErrorDefinition(ErrorCode.INACTIVE_USER, "Usuario", "La cuenta no se encuentra habilitada."),
     ErrorCode.INVALID_CREDENTIALS: ErrorDefinition(ErrorCode.INVALID_CREDENTIALS, "Usuario", "El correo electrónico o la contraseña son incorrectos."),
     ErrorCode.INVALID_ACCESS_TOKEN: ErrorDefinition(ErrorCode.INVALID_ACCESS_TOKEN, "Usuario", "La credencial de acceso no es válida."),

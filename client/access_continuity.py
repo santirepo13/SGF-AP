@@ -29,6 +29,14 @@ class AccessState:
     message: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RequestScope:
+    """In-memory identity snapshot that prevents stale callbacks changing a newer session."""
+
+    generation: int
+    account_id: int
+
+
 class CurrentUserConnector(Protocol):
     def current_user(self, *, access_token: str) -> object: ...
 
@@ -58,6 +66,54 @@ class AccessCoordinator:
     @property
     def access_allowed(self) -> bool:
         return self._state.status is AccessStatus.AUTHENTICATED and self.authentication.authenticated
+
+    def capture_request_scope(self) -> RequestScope | None:
+        """Capture the current authenticated account without exposing credentials."""
+
+        session = self.authentication.session
+        if not self.access_allowed or session is None:
+            return None
+        account_id = session.user.get("id")
+        if type(account_id) is not int:
+            return None
+        return RequestScope(self._generation, account_id)
+
+    def is_current_request_scope(self, scope: RequestScope | None) -> bool:
+        """Return whether an asynchronous response still belongs to this session."""
+
+        if not isinstance(scope, RequestScope) or not self.access_allowed:
+            return False
+        session = self.authentication.session
+        if session is None or session.user.get("id") != scope.account_id:
+            return False
+        return self._generation == scope.generation
+
+    async def handle_protected_error(self, scope: RequestScope | None, response: object) -> bool:
+        """Apply an access-token rejection only while its initiating scope is current."""
+
+        code = _error_code(_response_parts(response)[1])
+        if code not in {"USR-001", "USR-003", "USR-004", "USR-005"}:
+            return False
+        async with self._transition_lock:
+            if not self.is_current_request_scope(scope):
+                return False
+            candidate = self._candidate
+            self._generation += 1
+            self._candidate = None
+            self.authentication.clear()
+            if code == "USR-001":
+                self._state = AccessState(AccessStatus.INACTIVE, "La cuenta no se encuentra habilitada.")
+            else:
+                self._state = AccessState(
+                    AccessStatus.REAUTHENTICATION_REQUIRED,
+                    "Tu acceso ya no está vigente. Ingresa nuevamente.",
+                )
+        try:
+            async with self._storage_lock:
+                await self._storage.clear(candidate.record_id if candidate is not None else None)
+        except AccessStorageError:
+            pass
+        return True
 
     async def accept_login(
         self,
@@ -302,5 +358,6 @@ __all__ = [
     "AccessCoordinator",
     "AccessState",
     "AccessStatus",
+    "RequestScope",
     "CurrentUserConnector",
 ]

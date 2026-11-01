@@ -28,7 +28,7 @@ Los métodos actuales usan nombres en inglés y deben conservarse al integrarlos
 | AddressService | get_by_id, find_by_components, create_or_reuse, format_address |
 | UserService | get_by_id, get_by_email, list_by_filters, create, update, set_active |
 | CrewService | get_by_id, list_all, create, update, get_membership, list_members, add_member, change_crew, remove_member |
-| TicketService | create, get_by_id, get_by_code, list_by_filters, validate, prioritize, assign, record_attention, block, request_closure, review_closure |
+| TicketService | create, get_by_id, get_by_code, list_by_filters, validate, prioritize, assign, record_attention, block, unblock, request_closure, review_closure |
 | EvidenceService | get_by_id, list_by_ticket, list_by_ticket_and_uploader, create_metadata |
 | HistoryService | get_event, list_by_ticket, create_event |
 

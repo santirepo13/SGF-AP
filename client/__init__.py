@@ -1,6 +1,6 @@
 """Framework-neutral client components for registration and login flows."""
 
-from .access_continuity import AccessCoordinator, AccessState, AccessStatus
+from .access_continuity import AccessCoordinator, AccessState, AccessStatus, RequestScope
 from .access_storage import (
     AccessStorage,
     AccessStorageCorrupted,
@@ -13,6 +13,18 @@ from .access_storage import (
 )
 from .authentication import AuthState, AuthenticatedSession, AuthenticationState, SUPPORTED_ROLE_NAMES
 from .config import load_client_config
+from .citizen_connector import CitizenReportConnector, HttpCitizenReportConnector
+from .citizen_report import CitizenReportController, CitizenReportFormState, CitizenReportStatus
+from .report_attempt_storage import (
+    MemoryReportAttemptStorage,
+    ReportAttemptStorage,
+    ReportAttemptStorageError,
+    ReportAttemptStorageUnavailable,
+    SecureReportAttemptStorage,
+    StoredReportAttempt,
+    UnavailableReportAttemptStorage,
+)
+from .citizen_report_view import CitizenReportView
 from .design_tokens import ALLOWED_TEXT_PAIRS, COLORS, ColorToken, INTERACTION_MATRIX, contrast_ratio, validate_palette
 from .http_connector import LoginHttpConnector, RegistrationHttpConnector, build_login_connector, build_registration_connector
 from .login import LoginAttempt, LoginConnector, LoginController, LoginFormState, LoginOutput, LoginState, LoginStatus
@@ -41,6 +53,7 @@ __all__ = [
     "AccessCoordinator",
     "AccessState",
     "AccessStatus",
+    "RequestScope",
     "AccessStorage",
     "AccessStorageCorrupted",
     "AccessStorageError",
@@ -51,6 +64,19 @@ __all__ = [
     "AuthenticationState",
     "COLORS",
     "ColorToken",
+    "CitizenReportConnector",
+    "CitizenReportController",
+    "CitizenReportFormState",
+    "CitizenReportStatus",
+    "CitizenReportView",
+    "HttpCitizenReportConnector",
+    "MemoryReportAttemptStorage",
+    "ReportAttemptStorage",
+    "ReportAttemptStorageError",
+    "ReportAttemptStorageUnavailable",
+    "SecureReportAttemptStorage",
+    "StoredReportAttempt",
+    "UnavailableReportAttemptStorage",
     "ConnectorError",
     "ConnectorResponse",
     "ConnectorResponseError",

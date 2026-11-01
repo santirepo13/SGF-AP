@@ -5,9 +5,16 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from api.contracts import (
+    CitizenAttemptLookupInput,
+    CitizenAttemptOutput,
+    CitizenMatchInput,
+    CitizenMatchesOutput,
+    CitizenTicketCreateInput,
+    CitizenTicketRegistrationOutput,
     TicketAssignmentInput,
     TicketAttentionInput,
     TicketClosureReviewInput,
@@ -36,6 +43,9 @@ HttpAdapterDependency = Annotated[HttpOperationAdapter, Depends(get_http_adapter
 CorrelationIdDependency = Annotated[str, Depends(get_request_correlation_id)]
 
 _CREATE = HttpOperation("TicketService", "create", success_status=201)
+_REGISTER_CITIZEN = HttpOperation("TicketService", "register_citizen", no_store=True)
+_FIND_CITIZEN_MATCHES = HttpOperation("TicketService", "find_citizen_matches", no_store=True)
+_GET_CITIZEN_ATTEMPT = HttpOperation("TicketService", "get_citizen_attempt", no_store=True)
 _GET_BY_ID = HttpOperation("TicketService", "get_by_id")
 _GET_BY_CODE = HttpOperation("TicketService", "get_by_code")
 _LIST_BY_FILTERS = HttpOperation("TicketService", "list_by_filters")
@@ -44,6 +54,7 @@ _PRIORITIZE = HttpOperation("TicketService", "prioritize")
 _ASSIGN = HttpOperation("TicketService", "assign")
 _RECORD_ATTENTION = HttpOperation("TicketService", "record_attention")
 _BLOCK = HttpOperation("TicketService", "block")
+_UNBLOCK = HttpOperation("TicketService", "unblock")
 _REQUEST_CLOSURE = HttpOperation("TicketService", "request_closure")
 _REVIEW_CLOSURE = HttpOperation("TicketService", "review_closure")
 
@@ -56,6 +67,88 @@ _CLOSURE_REVIEW_SCHEMA = contract_schema(TicketClosureReviewInput, excluded_fiel
 _CLOSURE_REVIEW_SCHEMA["properties"]["decision"] = {
     "type": "string",
     "enum": ["Approval", "Rejection"],
+}
+
+_CITIZEN_MATCH_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["code", "status", "created_at", "progress_label"],
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string"},
+        "status": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "progress_label": {"type": "string"},
+    },
+}
+_CITIZEN_CONFIRMATION_SCHEMA = {
+    "type": "object",
+    "required": ["code", "created_at", "status", "evidence_count"],
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string", "pattern": "^SGF-[0-9A-F]{20}$"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "status": {"type": "string", "enum": ["Registered"]},
+        "evidence_count": {"type": "integer", "minimum": 0},
+    },
+}
+_CITIZEN_REGISTRATION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["request_key", "outcome", "ticket", "matches"],
+    "additionalProperties": False,
+    "properties": {
+        "request_key": {"type": "string", "minLength": 1, "maxLength": 128},
+        "outcome": {"type": "string", "enum": ["created", "matches"]},
+        "ticket": {**_CITIZEN_CONFIRMATION_SCHEMA, "nullable": True},
+        "matches": {"type": "array", "maxItems": 20, "items": _CITIZEN_MATCH_OUTPUT_SCHEMA},
+    },
+}
+_CITIZEN_MATCHES_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["matches", "has_more"],
+    "additionalProperties": False,
+    "properties": {
+        "matches": {"type": "array", "maxItems": 20, "items": _CITIZEN_MATCH_OUTPUT_SCHEMA},
+        "has_more": {"type": "boolean"},
+    },
+}
+_CITIZEN_ATTEMPT_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["request_key", "state", "result"],
+    "additionalProperties": False,
+    "properties": {
+        "request_key": {"type": "string", "minLength": 1, "maxLength": 128},
+        "state": {"type": "string", "enum": ["committed", "not_found"]},
+        "result": {**_CITIZEN_REGISTRATION_OUTPUT_SCHEMA, "nullable": True},
+    },
+}
+_CITIZEN_TICKET_CREATE_SCHEMA = {
+    "type": "object",
+    "required": ["request_key", "failure_type_id", "address_id", "description"],
+    "additionalProperties": False,
+    "properties": {
+        "request_key": {"type": "string", "minLength": 1, "maxLength": 128},
+        "failure_type_id": {"type": "integer", "minimum": 1},
+        "address_id": {"type": "integer", "minimum": 1},
+        "description": {"type": "string", "minLength": 1},
+        "contact_email": {"type": "string", "format": "email", "nullable": True},
+        "contact_phone": {"type": "string", "maxLength": 32, "nullable": True},
+        "temporary_upload_ids": {
+            "type": "array",
+            "maxItems": 3,
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        },
+        "email_notifications": {"type": "boolean"},
+    },
+}
+_CITIZEN_MATCH_INPUT_SCHEMA = {
+    "type": "object",
+    "required": ["address_id", "failure_type_id"],
+    "additionalProperties": False,
+    "properties": {
+        "address_id": {"type": "integer", "minimum": 1},
+        "failure_type_id": {"type": "integer", "minimum": 1},
+    },
 }
 
 
@@ -111,6 +204,111 @@ async def create(
 ) -> JSONResponse:
     data = await read_json_contract(request, TicketCreateInput, correlation_id=correlation_id)
     return _execute(request, adapter, ticket_service, _CREATE, data)
+
+
+@router.post(
+    "/citizen",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_REGISTRATION_OUTPUT_SCHEMA),
+    summary="Registrar una falla de alumbrado como ciudadano",
+    description=(
+        "Registra una intención ciudadana confirmada o devuelve reportes abiertos coincidentes. "
+        "La ubicación se identifica únicamente por address_id."
+    ),
+    openapi_extra={
+        "security": [{"HTTPBasic": [], "UserAccessToken": []}],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": _CITIZEN_TICKET_CREATE_SCHEMA}},
+        },
+    },
+)
+async def register_citizen(
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(
+        request,
+        CitizenTicketCreateInput,
+        correlation_id=correlation_id,
+    )
+    return await run_in_threadpool(
+        _execute,
+        request,
+        adapter,
+        ticket_service,
+        _REGISTER_CITIZEN,
+        data,
+    )
+
+
+@router.post(
+    "/citizen/matches",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_MATCHES_OUTPUT_SCHEMA),
+    summary="Buscar reportes abiertos coincidentes",
+    description="Busca coincidencias por la misma dirección estructurada y tipo de falla sin crear un reporte.",
+    openapi_extra={
+        "security": [{"HTTPBasic": [], "UserAccessToken": []}],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": _CITIZEN_MATCH_INPUT_SCHEMA}},
+        },
+    },
+)
+async def find_citizen_matches(
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(request, CitizenMatchInput, correlation_id=correlation_id)
+    return await run_in_threadpool(
+        _execute,
+        request,
+        adapter,
+        ticket_service,
+        _FIND_CITIZEN_MATCHES,
+        data,
+    )
+
+
+@router.get(
+    "/citizen/attempts/{request_key}",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_ATTEMPT_OUTPUT_SCHEMA),
+    summary="Recuperar un intento ciudadano confirmado",
+    description=(
+        "Devuelve un resultado confirmado del mismo ciudadano o not_found. "
+        "not_found no confirma que el envío anterior haya fallado."
+    ),
+    openapi_extra={"security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+async def get_citizen_attempt(
+    request_key: str,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = build_contract(
+        CitizenAttemptLookupInput,
+        path_values={"request_key": request_key},
+        correlation_id=correlation_id,
+    )
+    return await run_in_threadpool(
+        _execute,
+        request,
+        adapter,
+        ticket_service,
+        _GET_CITIZEN_ATTEMPT,
+        data,
+    )
 
 
 @router.get(
@@ -339,13 +537,40 @@ async def block(
 
 
 @router.post(
+    "/{ticket_id}/unblock",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_TICKET_OUTPUT_SCHEMA),
+    summary="Reanudar un ticket bloqueado",
+    description=(
+        "Cambia un ticket Blocked a InProgress y registra Unblock. Requiere un actor activo con el permiso "
+        "process_tickets. No recibe campos adicionales."
+    ),
+)
+async def unblock(
+    ticket_id: int,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(
+        request,
+        TicketOperationInput,
+        path_values={"ticket_id": ticket_id},
+        correlation_id=correlation_id,
+    )
+    return _execute(request, adapter, ticket_service, _UNBLOCK, data)
+
+
+@router.post(
     "/{ticket_id}/request-closure",
     status_code=200,
     response_class=JSONResponse,
     responses=response_envelopes(_TICKET_OUTPUT_SCHEMA),
     summary="Solicitar el cierre de un ticket",
     description=(
-        "Con solución y evidencias, cambia InProgress o Resolved a PendingClosure y registra ClosureRequest. "
+        "Con solución y evidencias, cambia InProgress a PendingClosure y registra ClosureRequest. "
         "Requiere un actor activo con el permiso process_tickets. No recibe campos adicionales."
     ),
 )

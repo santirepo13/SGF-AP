@@ -46,6 +46,7 @@ from api.repositories import (
     HistoryEventRepository,
     MunicipalityRepository,
     NeighborhoodRepository,
+    OperationAttemptRepository,
     PriorityRepository,
     RoadBisCodeRepository,
     RoadQuadrantRepository,
@@ -53,16 +54,20 @@ from api.repositories import (
     RoadTypeRepository,
     RoleRepository,
     StatusRepository,
+    TicketMatchGuardRepository,
     TicketRepository,
     UserRepository,
 )
 from api.interfaces.security import AccessTokenProviderInterface
 from api.notifications import PasswordRecoveryNotifier
 from api.security import (
+    CitizenAuthorizer,
     LazyArgon2idPasswordHasher,
     PasswordHasherInterface,
     PasswordRecoveryStore,
+    RolePermissionChecker,
     TokenIdentityProvider,
+    role_operation_authorizer,
 )
 from api.services import (
     AddressService,
@@ -70,6 +75,7 @@ from api.services import (
     CrewService,
     EvidenceService,
     HistoryService,
+    TicketMatcher,
     TicketService,
     UserService,
 )
@@ -163,6 +169,8 @@ class RepositorySet:
     statuses: StatusRepository
     actions: ActionRepository
     tickets: TicketRepository
+    ticket_match_guards: TicketMatchGuardRepository
+    operation_attempts: OperationAttemptRepository
     evidences: EvidenceRepository
     history_events: HistoryEventRepository
 
@@ -199,7 +207,10 @@ class ApplicationDependencies:
         password_recovery_store: PasswordRecoveryStore | None = None,
         password_recovery_notifier: PasswordRecoveryNotifier | None = None,
         password_recovery_code_ttl_seconds: int = 600,
+        citizen_description_max_length: int = 4_000,
     ) -> None:
+        if type(citizen_description_max_length) is not int or citizen_description_max_length <= 0:
+            raise ValueError("citizen_description_max_length must be a positive integer")
         self.connection_provider = connection_provider
         self.pipeline = pipeline
         self.identity_provider = identity_provider
@@ -209,6 +220,7 @@ class ApplicationDependencies:
         self.password_recovery_store = password_recovery_store
         self.password_recovery_notifier = password_recovery_notifier
         self.password_recovery_code_ttl_seconds = password_recovery_code_ttl_seconds
+        self.citizen_description_max_length = citizen_description_max_length
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
@@ -250,6 +262,7 @@ class ApplicationDependencies:
                 self.password_recovery_store,
                 self.password_recovery_notifier,
                 self.password_recovery_code_ttl_seconds,
+                self.citizen_description_max_length,
             )
 
 
@@ -264,6 +277,7 @@ def prepare_application_dependencies(
     password_recovery_store: PasswordRecoveryStore | None = None,
     password_recovery_notifier: PasswordRecoveryNotifier | None = None,
     password_recovery_code_ttl_seconds: int = 600,
+    citizen_description_max_length: int = 4_000,
 ) -> ApplicationDependencies:
     """Create application-shared collaborators and request-scoped service factories."""
 
@@ -277,7 +291,7 @@ def prepare_application_dependencies(
             correlation_ids=correlation_generator,
         ),
         validation=ValidationMiddleware(),
-        authorization=AuthorizationMiddleware(permission_checker=permission_checker),
+        authorization=AuthorizationMiddleware(permission_checker=RolePermissionChecker(permission_checker)),
         errors=ErrorMiddleware(),
         logging=ExecutionLoggingMiddleware(execution_logger),
     )
@@ -291,6 +305,7 @@ def prepare_application_dependencies(
         password_recovery_store,
         password_recovery_notifier,
         password_recovery_code_ttl_seconds,
+        citizen_description_max_length,
     )
 
 
@@ -396,6 +411,8 @@ def _build_repositories(connection: Any) -> RepositorySet:
         statuses=StatusRepository(connection),
         actions=ActionRepository(connection),
         tickets=TicketRepository(connection),
+        ticket_match_guards=TicketMatchGuardRepository(connection),
+        operation_attempts=OperationAttemptRepository(connection),
         evidences=EvidenceRepository(connection),
         history_events=HistoryEventRepository(connection),
     )
@@ -410,6 +427,7 @@ def _build_operation_dependencies(
     password_recovery_store: PasswordRecoveryStore | None = None,
     password_recovery_notifier: PasswordRecoveryNotifier | None = None,
     password_recovery_code_ttl_seconds: int = 600,
+    citizen_description_max_length: int = 4_000,
 ) -> OperationDependencies:
     effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
     return OperationDependencies(
@@ -443,6 +461,7 @@ def _build_operation_dependencies(
             cross_bis_codes=repositories.cross_bis_codes,
             cross_quadrants=repositories.cross_quadrants,
             transaction=transaction,
+            authorizer=role_operation_authorizer,
         ),
         user_service=UserService(
             users=repositories.users,
@@ -474,19 +493,31 @@ def _build_operation_dependencies(
             crews=repositories.crews,
             evidences=repositories.evidences,
             events=repositories.history_events,
+            roles=repositories.roles,
+            operation_attempts=repositories.operation_attempts,
+            matcher=TicketMatcher(
+                repositories.tickets,
+                repositories.statuses,
+                repositories.ticket_match_guards,
+            ),
+            citizen_authorizer=CitizenAuthorizer(),
+            citizen_description_max_length=citizen_description_max_length,
             transaction=transaction,
+            authorizer=role_operation_authorizer,
         ),
         evidence_service=EvidenceService(
             evidences=repositories.evidences,
             tickets=repositories.tickets,
             users=repositories.users,
             transaction=transaction,
+            authorizer=role_operation_authorizer,
         ),
         history_service=HistoryService(
             events=repositories.history_events,
             tickets=repositories.tickets,
             actions=repositories.actions,
             transaction=transaction,
+            authorizer=role_operation_authorizer,
         ),
     )
 

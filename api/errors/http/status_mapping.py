@@ -12,6 +12,7 @@ _ERROR_STATUSES: dict[str, int] = {
     ErrorCode.RESOURCE_NOT_FOUND.value: status.HTTP_404_NOT_FOUND,
     ErrorCode.INVALID_REFERENCE.value: status.HTTP_422_UNPROCESSABLE_CONTENT,
     ErrorCode.UNIQUE_CONFLICT.value: status.HTTP_409_CONFLICT,
+    ErrorCode.OPERATION_KEY_REUSED.value: status.HTTP_409_CONFLICT,
     ErrorCode.INACTIVE_USER.value: status.HTTP_403_FORBIDDEN,
     ErrorCode.INVALID_CREDENTIALS.value: status.HTTP_401_UNAUTHORIZED,
     ErrorCode.INVALID_ACCESS_TOKEN.value: status.HTTP_401_UNAUTHORIZED,

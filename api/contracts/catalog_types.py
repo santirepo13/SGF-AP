@@ -7,7 +7,7 @@ from .common_types import ensure_choice, ensure_length
 ROLE_NAMES = ("Citizen", "Operator", "Coordinator", "Crew", "Admin")
 PRIORITY_NAMES = ("High", "Standard")
 STATUS_NAMES = ("Registered", "Validated", "Prioritized", "Assigned", "InProgress", "Blocked", "PendingClosure", "Resolved")
-ACTION_NAMES = ("Registration", "Validation", "Prioritization", "Assignment", "Attention", "Blockage", "ClosureRequest", "Approval", "Rejection")
+ACTION_NAMES = ("Registration", "Validation", "Prioritization", "Assignment", "Attention", "Blockage", "Unblock", "ClosureRequest", "Approval", "Rejection")
 
 
 @dataclass(frozen=True)

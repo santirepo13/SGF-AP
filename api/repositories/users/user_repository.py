@@ -10,6 +10,15 @@ class UserRepository(RepositoryBase):
     def get_by_id(self, user_id: int):
         return self.fetch_one(f"SELECT {_COLUMNS} FROM users WHERE id = %s", (user_id,), operation="users.get_by_id", entity="user", mapper=user)
 
+    def get_by_id_for_update(self, user_id: int):
+        return self.fetch_one(
+            f"SELECT {_COLUMNS} FROM users WHERE id = %s FOR UPDATE",
+            (user_id,),
+            operation="users.get_by_id_for_update",
+            entity="user",
+            mapper=user,
+        )
+
     def get_by_email(self, email: str):
         return self.fetch_one(f"SELECT {_COLUMNS} FROM users WHERE email = %s", (email,), operation="users.get_by_email", entity="user", mapper=user)
 

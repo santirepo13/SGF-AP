@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.contracts import (
-    AddressComponentsInput, AddressCreateInput, CitizenRegistrationInput, CrewCreateInput, CrewMemberInput,
-    CrewUpdateInput, EvidenceCreateInput, HistoryEventCreateInput,
+    AddressComponentsInput, AddressCreateInput, CitizenAttemptLookupInput,
+    CitizenRegistrationInput, CitizenMatchInput, CitizenTicketCreateInput,
+    CrewCreateInput, CrewMemberInput, CrewUpdateInput, EvidenceCreateInput,
+    HistoryEventCreateInput,
     TicketAssignmentInput, TicketAttentionInput, TicketClosureReviewInput,
     TicketCreateInput, TicketOperationInput, UserActivationInput,
     UserCreateInput, UserLoginInput, UserUpdateInput,
@@ -61,13 +63,17 @@ def _policies() -> dict[str, OperationPolicy]:
         "CrewService.change_crew": OperationPolicy(actor_required=True, permission="manage_crews", input_types=(CrewMemberInput,)),
         "CrewService.remove_member": OperationPolicy(actor_required=True, permission="manage_crews"),
         "TicketService.create": OperationPolicy(actor_required=True, permission="create_ticket", input_types=(TicketCreateInput,)),
+        "TicketService.register_citizen": OperationPolicy(actor_required=True, permission="citizen_report_create", input_types=(CitizenTicketCreateInput,)),
+        "TicketService.find_citizen_matches": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenMatchInput,)),
+        "TicketService.get_citizen_attempt": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenAttemptLookupInput,)),
         "TicketService.get_by_id": public,
         "TicketService.get_by_code": public,
         "TicketService.list_by_filters": public,
         **{f"TicketService.{name}": OperationPolicy(actor_required=True, permission="process_tickets", input_types=(input_type,)) for name, input_type in (
             ("validate", TicketOperationInput), ("prioritize", TicketOperationInput),
             ("assign", TicketAssignmentInput), ("record_attention", TicketAttentionInput),
-            ("block", TicketOperationInput), ("request_closure", TicketOperationInput),
+            ("block", TicketOperationInput), ("unblock", TicketOperationInput),
+            ("request_closure", TicketOperationInput),
             ("review_closure", TicketClosureReviewInput),
         )},
         "EvidenceService.get_by_id": public,

@@ -7,6 +7,10 @@ from collections.abc import Callable
 from typing import Any
 
 from .access_continuity import AccessCoordinator, AccessStatus
+from .citizen_connector import HttpCitizenReportConnector
+from .citizen_report import CitizenReportController
+from .citizen_report_view import CitizenReportView
+from .report_attempt_storage import SecureReportAttemptStorage, UnavailableReportAttemptStorage
 from .access_storage import SecureAccessStorage, UnavailableAccessStorage
 from .authentication import AuthenticationState
 from .design_tokens import COLORS
@@ -46,6 +50,12 @@ class _UnavailableConnector:
     def complete_password_recovery(self, **kwargs: str) -> object:
         raise RuntimeError("recovery service configuration is unavailable") from self.reason
 
+    def post_json(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("citizen report service configuration is unavailable") from self.reason
+
+    def get_json(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("citizen report service configuration is unavailable") from self.reason
+
 
 def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector] | None = None) -> None:
     """Build responsive login, registration, recovery, and role landing views."""
@@ -69,6 +79,12 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         configuration_message = _configuration_message(error)
 
     access = AccessCoordinator(authenticated, _build_access_storage(), connector)
+    citizen_report = CitizenReportController(
+        HttpCitizenReportConnector(connector),
+        _build_report_attempt_storage(),
+    )
+    citizen_report_view: CitizenReportView | None = None
+    restored_report_accounts: set[int] = set()
     login: LoginController | None = None
     registration = RegistrationController(connector)
     recovery = PasswordRecoveryController(connector)
@@ -80,6 +96,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             registration.abandon()
         elif screen is ScreenName.RECOVER_PASSWORD:
             recovery.abandon()
+        elif screen is ScreenName.CITIZEN_REPORT:
+            citizen_report.abandon()
 
     navigation = NavigationController(
         on_screen_closed=closed,
@@ -149,6 +167,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_registration()
         elif active is ScreenName.RECOVER_PASSWORD:
             render_recovery()
+        elif active is ScreenName.CITIZEN_REPORT:
+            render_citizen_report()
         else:
             render_role_destination(active)
 
@@ -523,6 +543,67 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
 
         replace(ft.Column(controls=controls, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10), vertically_centered=True)
 
+    def _report_account_id() -> int | None:
+        session = authenticated.session
+        if session is None:
+            return None
+        account_id = session.user.get("id")
+        return account_id if type(account_id) is int else None
+
+    async def _handle_report_protected_response(scope: object | None, response: object | None) -> bool:
+        if response is None:
+            return False
+        if not await access.handle_protected_error(scope, response):
+            return False
+        citizen_report.reset()
+        restored_report_accounts.clear()
+        navigation.revoke_access()
+        render_current()
+        return True
+
+    def _close_citizen_report() -> None:
+        navigation.open(ScreenName.CITIZEN)
+        render_current()
+
+    def _open_report_ticket(code: str) -> None:
+        try:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Consulta el reporte con el código {code}."))
+            page.snack_bar.open = True
+            refresh()
+        except (AttributeError, TypeError):
+            return
+
+    async def _restore_citizen_report_attempt(account_id: int) -> None:
+        await citizen_report.restore_pending(account_id)
+        if navigation.active_screen is ScreenName.CITIZEN_REPORT:
+            render_current()
+
+    def render_citizen_report() -> None:
+        nonlocal citizen_report_view
+        if citizen_report_view is None:
+            citizen_report_view = CitizenReportView(
+                ft,
+                citizen_report,
+                account_id=_report_account_id,
+                capture_scope=access.capture_request_scope,
+                handle_protected_response=_handle_report_protected_response,
+                refresh=render_current,
+                close=_close_citizen_report,
+                open_ticket=_open_report_ticket,
+            )
+        account_id = _report_account_id()
+        if account_id is not None and account_id not in restored_report_accounts:
+            restored_report_accounts.add(account_id)
+            try:
+                page.run_task(_restore_citizen_report_attempt, account_id)
+            except (AttributeError, TypeError):
+                pass
+        try:
+            page.run_task(citizen_report_view.load_initial_catalogs)
+        except (AttributeError, TypeError):
+            pass
+        replace(citizen_report_view.build())
+
     def render_role_destination(destination: ScreenName) -> None:
         session = authenticated.session
         if session is None:
@@ -534,10 +615,17 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
 
         async def logout(event: Any) -> None:
             await access.sign_out()
+            citizen_report.reset()
+            restored_report_accounts.clear()
             assert login is not None
             login.reset()
             navigation.revoke_access()
             render_current()
+
+        def open_citizen_report(event: Any) -> None:
+            if destination is ScreenName.CITIZEN:
+                navigation.open(ScreenName.CITIZEN_REPORT)
+                render_current()
 
         labels = {
             ScreenName.CITIZEN: "Área ciudadana",
@@ -555,6 +643,20 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                     centered(ft.Text(labels[destination], size=22, weight=ft.FontWeight.BOLD, color=COLORS["text_primary"].hex)),
                     centered(ft.Text(f"Bienvenido/a, {first_name}.", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
                     centered(ft.Text(f"Rol: {role_name}", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
+                    *(
+                        [
+                            centered(
+                                ft.Button(
+                                    "Registrar falla de alumbrado",
+                                    bgcolor=COLORS["primary"].hex,
+                                    color=COLORS["text_on_primary"].hex,
+                                    on_click=open_citizen_report,
+                                )
+                            )
+                        ]
+                        if destination is ScreenName.CITIZEN
+                        else []
+                    ),
                     centered(ft.Text("Este punto de entrada estará disponible con las funciones de tu rol.", color=COLORS["text_secondary"].hex, text_align=ft.TextAlign.CENTER)),
                     centered(ft.TextButton("Cerrar sesión", on_click=logout)),
                 ],
@@ -567,11 +669,16 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         if active in {ScreenName.REGISTER, ScreenName.RECOVER_PASSWORD}:
             navigation.back_to_login()
             render_current()
+        elif active is ScreenName.CITIZEN_REPORT:
+            navigation.open(ScreenName.CITIZEN)
+            render_current()
         elif active is ScreenName.LOGIN:
             assert login is not None
             login.abandon()
         else:
             await access.sign_out()
+            citizen_report.reset()
+            restored_report_accounts.clear()
             assert login is not None
             login.reset()
             navigation.revoke_access()
@@ -582,6 +689,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         login.abandon()
         registration.abandon()
         recovery.abandon()
+        citizen_report.reset()
+        restored_report_accounts.clear()
         await access.forget_process()
 
     async def on_app_lifecycle_state_change(event: Any) -> None:
@@ -665,6 +774,19 @@ def _build_access_storage() -> SecureAccessStorage | UnavailableAccessStorage:
         return SecureAccessStorage(fss.SecureStorage())
     except BaseException:
         return UnavailableAccessStorage()
+
+
+def _build_report_attempt_storage() -> SecureReportAttemptStorage | UnavailableReportAttemptStorage:
+    """Use a distinct protected namespace for report-recovery payloads."""
+
+    try:
+        import flet_secure_storage as fss
+    except ModuleNotFoundError:
+        return UnavailableReportAttemptStorage()
+    try:
+        return SecureReportAttemptStorage(fss.SecureStorage())
+    except BaseException:
+        return UnavailableReportAttemptStorage()
 
 
 def run() -> None:
