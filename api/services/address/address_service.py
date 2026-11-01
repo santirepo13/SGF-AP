@@ -1,7 +1,7 @@
 """Address lookup, reference validation, reuse, and safe concurrent creation."""
 
 from api.contracts import AddressComponentsInput, AddressCreateInput, AddressOutput, OperationResult
-from api.errors import ApplicationError
+from api.errors import ApplicationError, ErrorCode
 from api.interfaces.repositories import (
     AddressRepositoryInterface,
     CrossBisCodeRepositoryInterface,
@@ -75,7 +75,13 @@ class AddressService(ServiceBase):
             existing = self.addresses.find_by_components(components)
             if existing is not None:
                 return self._out(existing)
-            created = self.addresses.create_if_absent(data)
+            create_if_absent = getattr(self.addresses, "create_if_absent", None)
+            try:
+                created = create_if_absent(data) if callable(create_if_absent) else self.addresses.create(data)
+            except ApplicationError as error:
+                if error.code is not ErrorCode.UNIQUE_CONFLICT:
+                    raise
+                created = None
             if created is not None:
                 return self._out(created)
             canonical = self.addresses.find_by_components(components)
