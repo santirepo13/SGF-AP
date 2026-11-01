@@ -8,7 +8,6 @@ from types import UnionType
 from typing import Annotated, Union, get_args, get_origin, get_type_hints
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from api.contracts import AddressComponentsInput, AddressCreateInput, AddressOutput
@@ -251,4 +250,4 @@ async def create_or_reuse(
     correlation_id: CorrelationIdDependency,
 ) -> JSONResponse:
     data = await read_json_contract(request, AddressCreateInput, correlation_id=correlation_id)
-    return await run_in_threadpool(_execute, request, adapter, address_service, _CREATE_OR_REUSE, data)
+    return _execute(request, adapter, address_service, _CREATE_OR_REUSE, data)
