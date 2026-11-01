@@ -13,6 +13,15 @@ from .design_tokens import COLORS
 class CitizenReportView:
     """Render the citizen form without embedding transport or ticket decisions in Flet callbacks."""
 
+    _FAILURE_TYPE_LABELS = {
+        "Exposed cable": "Cable expuesto",
+        "Pole fall risk": "Riesgo de caída del poste",
+        "Box without cover": "Caja sin cubierta",
+        "Light out": "Luminaria apagada",
+        "Intermittent": "Luminaria intermitente",
+        "Tree Branches": "Ramas de árboles",
+    }
+
     _INITIAL_CATALOGS = {
         "failure_types": "/catalogs/failure-types",
         "municipalities": "/catalogs/municipalities",
@@ -114,7 +123,7 @@ class CitizenReportView:
             self._dropdown(
                 label="Tipo de falla",
                 value=str(state.failure_type_id) if state.failure_type_id is not None else None,
-                options=self._id_options(self._catalogs["failure_types"]),
+                options=self._failure_type_options(self._catalogs["failure_types"]),
                 on_change=self._failure_changed,
                 disabled=disabled,
             ),
@@ -319,7 +328,7 @@ class CitizenReportView:
             label=label,
             value=value,
             options=[self._option("", "Selecciona")] + options,
-            on_change=on_change,
+            on_select=on_change,
             disabled=disabled,
         )
 
@@ -416,6 +425,19 @@ class CitizenReportView:
             self._refresh()
 
         return changed
+
+    def _failure_type_options(self, values: tuple[dict[str, object], ...]) -> list[Any]:
+        return [
+            self._option(
+                str(value["id"]),
+                self._FAILURE_TYPE_LABELS.get(
+                    str(value.get("name", value["id"])),
+                    str(value.get("name", value["id"])),
+                ),
+            )
+            for value in values
+            if type(value.get("id")) is int
+        ]
 
     def _id_options(self, values: tuple[dict[str, object], ...]) -> list[Any]:
         return [
