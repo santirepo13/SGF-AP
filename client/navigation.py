@@ -13,6 +13,8 @@ class ScreenName(str, Enum):
     RECOVER_PASSWORD = "recover_password"
     CITIZEN = "citizen"
     CITIZEN_REPORT = "citizen_report"
+    CITIZEN_TICKET = "citizen_ticket"
+    CITIZEN_CONTRIBUTION = "citizen_contribution"
     OPERATOR = "operator"
     COORDINATOR = "coordinator"
     CREW = "crew"
@@ -26,7 +28,7 @@ ROLE_DESTINATIONS: dict[str, ScreenName] = {
     "Crew": ScreenName.CREW,
     "Admin": ScreenName.ADMIN,
 }
-PROTECTED_SCREENS = frozenset((*ROLE_DESTINATIONS.values(), ScreenName.CITIZEN_REPORT))
+PROTECTED_SCREENS = frozenset((*ROLE_DESTINATIONS.values(), ScreenName.CITIZEN_REPORT, ScreenName.CITIZEN_TICKET))
 
 
 @dataclass

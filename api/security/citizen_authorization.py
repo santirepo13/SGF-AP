@@ -15,6 +15,14 @@ CITIZEN_REPORT_OPERATIONS = frozenset(
         "TicketService.register_citizen",
         "TicketService.find_citizen_matches",
         "TicketService.get_citizen_attempt",
+        "TicketService.contribute_citizen_evidence",
+        "TicketService.get_citizen_contribution_attempt",
+        "EvidenceUploadService.upload",
+        "EvidenceUploadService.list_own",
+        "EvidenceUploadService.delete_own",
+        "EvidenceService.list_citizen_ticket_evidence",
+        "EvidenceService.list_citizen_contribution_evidence",
+        "EvidenceService.open_citizen_content",
     }
 )
 
@@ -24,6 +32,9 @@ _CITIZEN_PERMISSIONS = frozenset(
         "citizen_report_create",
         "citizen_report_read",
         "citizen_evidence_manage",
+        "citizen_evidence_upload",
+        "citizen_evidence_read",
+        "citizen_evidence_contribute",
         "citizen_preferences_manage",
     }
 )

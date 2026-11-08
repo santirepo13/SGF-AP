@@ -44,7 +44,77 @@ Content-Type: application/json
   "description": "La luminaria permanece apagada desde anoche.",
   "contact_email": "persona@example.test",
   "contact_phone": "+57 300 000 0000",
-  "email_notifications": false
+  "email_notifications": false,
+  "temporary_upload_ids": [
+    "00000000-0000-0000-0000-000000000000"
+  ]
+}
+```
+
+## Carga temporal de fotografías
+
+```http
+POST /evidences/uploads
+Content-Type: multipart/form-data
+Authorization: Basic …
+User-Access-Token: …
+```
+
+```text
+file=<una imagen JPEG, PNG o WebP>
+request_key=<clave opaca del intento>
+upload_key=<clave opaca estable de la selección>
+capture_source=camera|device_metadata|user_declared|unknown
+captured_at=<ISO 8601 con zona, opcional>
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "upload_id": "00000000-0000-0000-0000-000000000000",
+    "state": "ready",
+    "size_bytes": 152300,
+    "media_type": "image/jpeg",
+    "captured_at": "2026-11-04T10:30:00-05:00",
+    "capture_source": "camera",
+    "expires_at": "2026-11-05T10:30:00-05:00"
+  },
+  "error": null
+}
+```
+
+## Aporte a coincidencia
+
+```http
+POST /tickets/citizen/contributions
+```
+
+```json
+{
+  "request_key": "clave-de-intento",
+  "target_code": "SGF-AAAAAAAAAAAAAAAAAAAA",
+  "address_id": 27,
+  "failure_type_id": 4,
+  "temporary_upload_ids": [
+    "00000000-0000-0000-0000-000000000000"
+  ]
+}
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "request_key": "clave-de-intento",
+    "outcome": "contributed",
+    "contribution_id": "00000000-0000-0000-0000-000000000000",
+    "ticket_code": "SGF-AAAAAAAAAAAAAAAAAAAA",
+    "created_at": "2026-11-04T10:40:00-05:00",
+    "evidence_count": 1,
+    "evidence_ids": [41]
+  },
+  "error": null
 }
 ```
 

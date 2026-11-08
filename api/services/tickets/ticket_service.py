@@ -12,6 +12,9 @@ from api.contracts import (
     CitizenTicketConfirmation,
     CitizenTicketCreateInput,
     CitizenTicketRegistrationOutput,
+    CitizenContributionAttemptOutput,
+    CitizenContributionInput,
+    CitizenContributionOutput,
     HistoryEventCreateInput,
     OperationResult,
     TicketAttentionInput,
@@ -60,6 +63,12 @@ class TicketService(ServiceBase):
     _REGISTER_CITIZEN_OPERATION = "TicketService.register_citizen"
     _FIND_CITIZEN_MATCHES_OPERATION = "TicketService.find_citizen_matches"
     _GET_CITIZEN_ATTEMPT_OPERATION = "TicketService.get_citizen_attempt"
+    _CONTRIBUTE_CITIZEN_EVIDENCE_OPERATION = (
+        "TicketService.contribute_citizen_evidence"
+    )
+    _GET_CITIZEN_CONTRIBUTION_ATTEMPT_OPERATION = (
+        "TicketService.get_citizen_contribution_attempt"
+    )
 
     def __init__(
         self,
@@ -75,6 +84,8 @@ class TicketService(ServiceBase):
         roles: RoleRepositoryInterface | None = None,
         operation_attempts: OperationAttemptRepositoryInterface | None = None,
         matcher: TicketMatcher | None = None,
+        evidence_attachment: EvidenceAttachment | None = None,
+        contributions: CitizenContributionRepositoryInterface | None = None,
         citizen_authorizer: CitizenAuthorizer | None = None,
         citizen_description_max_length: int = 4_000,
         **kwargs,
@@ -96,6 +107,8 @@ class TicketService(ServiceBase):
         self.roles = roles
         self.operation_attempts = operation_attempts
         self.matcher = matcher
+        self.evidence_attachment = evidence_attachment
+        self.contributions = contributions
         self.citizen_authorizer = citizen_authorizer or CitizenAuthorizer()
         self.citizen_description_max_length = citizen_description_max_length
 
@@ -194,6 +207,11 @@ class TicketService(ServiceBase):
                 address_id=data.address_id,
                 failure_type_id=data.failure_type_id,
             )
+            prepared = self._attachment().prepare_attachment(
+                context,
+                request_key=data.request_key,
+                upload_ids=_upload_ids(data.temporary_upload_ids),
+            )
             matches = matcher.find(
                 address_id=data.address_id,
                 failure_type_id=data.failure_type_id,
@@ -219,6 +237,12 @@ class TicketService(ServiceBase):
                     context,
                 )
                 ticket = self._create_citizen_ticket(data, user.id, status.id, context)
+                attached = self._attachment().attach_in_transaction(
+                    context,
+                    ticket_id=ticket.id,
+                    request_key=data.request_key,
+                    upload_ids=prepared.upload_ids,
+                )
                 events.create(HistoryEventCreateInput(ticket.id, action.id, user.id))
                 result = CitizenTicketRegistrationOutput(
                     request_key=data.request_key,
@@ -227,7 +251,8 @@ class TicketService(ServiceBase):
                         code=ticket.code,
                         created_at=ticket.created_at,
                         status=StatusName.REGISTERED.value,
-                        evidence_count=0,
+                        evidence_count=len(attached.evidence_ids),
+                        evidence_ids=attached.evidence_ids,
                     ),
                     matches=(),
                 )
@@ -306,6 +331,27 @@ class TicketService(ServiceBase):
             work,
             actor_required=True,
         )
+
+    def contribute_citizen_evidence(
+        self,
+        context,
+        data: CitizenContributionInput,
+    ) -> OperationResult[CitizenContributionOutput]:
+        # Lock current Citizen; recover existing ledger result first.
+        # Validate request digest, target code, submitted address/type, 1..3 IDs.
+        # Acquire address/failure guard, lock target ticket, require open exact match.
+        # Insert citizen_contributions without changing ticket state/history/ownership.
+        # Attach ready temporary report uploads transactionally.
+        # Link resulting evidences to contribution, persist generic ledger, commit once.
+        ...
+
+    def get_citizen_contribution_attempt(
+        self,
+        context,
+        data: CitizenAttemptLookupInput,
+    ) -> OperationResult[CitizenContributionAttemptOutput]:
+        # Query only current actor + contribution operation namespace.
+        ...
 
     def get_by_id(self, context, ticket_id: int) -> OperationResult[TicketOutput]:
         return self._run(

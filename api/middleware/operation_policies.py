@@ -9,6 +9,7 @@ from api.contracts import (
     AddressComponentsInput, AddressCreateInput, CitizenAttemptLookupInput,
     CitizenRegistrationInput, CitizenMatchInput, CitizenTicketCreateInput,
     CrewCreateInput, CrewMemberInput, CrewUpdateInput, EvidenceCreateInput,
+    EvidenceUploadInput, EvidenceUploadLookupInput, CitizenContributionInput,
     HistoryEventCreateInput,
     TicketAssignmentInput, TicketAttentionInput, TicketClosureReviewInput,
     TicketCreateInput, TicketOperationInput, UserActivationInput,
@@ -66,6 +67,16 @@ def _policies() -> dict[str, OperationPolicy]:
         "TicketService.register_citizen": OperationPolicy(actor_required=True, permission="citizen_report_create", input_types=(CitizenTicketCreateInput,)),
         "TicketService.find_citizen_matches": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenMatchInput,)),
         "TicketService.get_citizen_attempt": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenAttemptLookupInput,)),
+        "TicketService.contribute_citizen_evidence": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_contribute",
+            input_types=(CitizenContributionInput,),
+        ),
+        "TicketService.get_citizen_contribution_attempt": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_read",
+            input_types=(CitizenAttemptLookupInput,),
+        ),
         "TicketService.get_by_id": public,
         "TicketService.get_by_code": public,
         "TicketService.list_by_filters": public,
@@ -76,10 +87,45 @@ def _policies() -> dict[str, OperationPolicy]:
             ("request_closure", TicketOperationInput),
             ("review_closure", TicketClosureReviewInput),
         )},
-        "EvidenceService.get_by_id": public,
-        "EvidenceService.list_by_ticket": public,
-        "EvidenceService.list_by_ticket_and_uploader": public,
+        "EvidenceService.get_by_id": OperationPolicy(
+            actor_required=True,
+            permission="operational_ticket_read",
+        ),
+        "EvidenceService.list_by_ticket": OperationPolicy(
+            actor_required=True,
+            permission="operational_ticket_read",
+        ),
+        "EvidenceService.list_by_ticket_and_uploader": OperationPolicy(
+            actor_required=True,
+            permission="operational_ticket_read",
+        ),
         "EvidenceService.create_metadata": OperationPolicy(actor_required=True, permission="create_evidence", input_types=(EvidenceCreateInput,)),
+        "EvidenceService.list_citizen_ticket_evidence": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_read",
+        ),
+        "EvidenceService.list_citizen_contribution_evidence": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_read",
+        ),
+        "EvidenceService.open_citizen_content": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_read",
+        ),
+        "EvidenceUploadService.upload": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_upload",
+            input_types=(EvidenceUploadInput,),
+        ),
+        "EvidenceUploadService.list_own": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_read",
+            input_types=(EvidenceUploadLookupInput,),
+        ),
+        "EvidenceUploadService.delete_own": OperationPolicy(
+            actor_required=True,
+            permission="citizen_evidence_upload",
+        ),
         "HistoryService.get_event": public,
         "HistoryService.list_by_ticket": public,
         "HistoryService.create_event": OperationPolicy(actor_required=True, permission="create_history_event", input_types=(HistoryEventCreateInput,)),

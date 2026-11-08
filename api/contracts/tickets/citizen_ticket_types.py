@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from uuid import UUID
 
 from ..common_types import UNSET, Unset, ensure_aware
 
@@ -18,7 +19,10 @@ class CitizenTicketCreateInput:
     description: str
     contact_email: str | None | Unset = field(default=UNSET, repr=False)
     contact_phone: str | None | Unset = field(default=UNSET, repr=False)
-    temporary_upload_ids: list[str] | None | Unset = field(default=UNSET, repr=False)
+    temporary_upload_ids: tuple[UUID, ...] | Unset = field(
+        default=UNSET,
+        repr=False,
+    )
     email_notifications: bool | None | Unset = field(default=UNSET, repr=False)
 
 
@@ -45,6 +49,7 @@ class CitizenTicketConfirmation:
     created_at: datetime
     status: str
     evidence_count: int
+    evidence_ids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.code) is not str or not self.code:
