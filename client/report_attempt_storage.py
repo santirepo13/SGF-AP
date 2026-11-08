@@ -11,7 +11,13 @@ _PREFIX = "sgfap.citizen-report-attempt.v1"
 _VERSION = 1
 _REQUIRED_PAYLOAD_FIELDS = frozenset({"request_key", "failure_type_id", "address_id", "description"})
 _OPTIONAL_PAYLOAD_FIELDS = frozenset(
-    {"contact_email", "contact_phone", "temporary_upload_ids", "email_notifications"}
+    {
+        "contact_email",
+        "contact_phone",
+        "temporary_upload_ids",
+        "email_notifications",
+        "contribution_target_code",
+    }
 )
 
 
@@ -181,7 +187,9 @@ def _validated_payload(value: Mapping[str, object], *, expected_request_key: str
         raise ValueError("report payload contact phone is invalid")
     upload_ids = value.get("temporary_upload_ids")
     if "temporary_upload_ids" in value and (
-        type(upload_ids) is not list or any(type(item) is not str for item in upload_ids)
+        type(upload_ids) is not list
+        or len(upload_ids) > 3
+        or any(type(item) is not str for item in upload_ids)
     ):
         raise ValueError("report payload temporary uploads are invalid")
     notifications = value.get("email_notifications")

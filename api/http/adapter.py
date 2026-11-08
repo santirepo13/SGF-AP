@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 
 from api.contracts import ExecutionContext
 from api.http.context import (
@@ -43,6 +44,57 @@ class HttpOperationAdapter:
         *args: Any,
         **kwargs: Any,
     ) -> JSONResponse:
+        result, context = self._execute_result(
+            request,
+            operation,
+            service,
+            *args,
+            **kwargs,
+        )
+        response = operation_response(result, success_status=operation.success_status)
+        if operation.no_store:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def execute_binary(
+        self,
+        request: Request,
+        operation: HttpOperation,
+        service: object,
+        *args: Any,
+        **kwargs: Any,
+    ) -> JSONResponse | StreamingResponse:
+        result, _context = self._execute_result(
+            request,
+            operation,
+            service,
+            *args,
+            **kwargs,
+        )
+        if not result.success:
+            return operation_response(result, success_status=operation.success_status)
+        descriptor = result.data
+        return StreamingResponse(
+            _close_after_iteration(descriptor),
+            media_type=descriptor.media_type,
+            headers={
+                "Content-Length": str(descriptor.size_bytes),
+                "Content-Disposition": (
+                    f'attachment; filename="{descriptor.download_name}"'
+                ),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    def _execute_result(
+        self,
+        request: Request,
+        operation: HttpOperation,
+        service: object,
+        *args: Any,
+        **kwargs: Any,
+    ):
         application_dependencies = getattr(request.app.state, "dependencies", None)
         if application_dependencies is None:
             raise RuntimeError("application dependencies are not initialized")
@@ -85,10 +137,15 @@ class HttpOperationAdapter:
                 context=context,
                 **kwargs,
             )
-        response = operation_response(result, success_status=operation.success_status)
-        if operation.no_store:
-            response.headers["Cache-Control"] = "no-store"
-        return response
+        return result, context
+
+
+def _close_after_iteration(descriptor):
+    try:
+        while chunk := descriptor.stream.read(256 * 1024):
+            yield chunk
+    finally:
+        descriptor.close()
 
 
 def get_http_adapter(request: Request) -> HttpOperationAdapter:

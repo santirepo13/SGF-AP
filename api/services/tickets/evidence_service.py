@@ -1,4 +1,11 @@
-from api.contracts import EvidenceCreateInput, EvidenceOutput, OperationResult
+from api.contracts import (
+    CitizenEvidenceListOutput,
+    CitizenEvidenceOutput,
+    EvidenceContentDescriptor,
+    EvidenceCreateInput,
+    EvidenceOutput,
+    OperationResult,
+)
 from api.interfaces.repositories import EvidenceRepositoryInterface, TicketRepositoryInterface, UserRepositoryInterface
 from api.security import role_operation_authorizer
 
@@ -31,6 +38,7 @@ class EvidenceService(ServiceBase):
         )
 
     def get_by_id(self, context, evidence_id: int) -> OperationResult[EvidenceOutput]:
+        # Operational-only safe projection; never return file_path.
         def work():
             value = self.evidences.get_by_id(evidence_id)
             if value is None:
@@ -40,6 +48,7 @@ class EvidenceService(ServiceBase):
         return self._execute(context, "EvidenceService.get_by_id", work)
 
     def list_by_ticket(self, context, ticket_id: int) -> OperationResult[list[EvidenceOutput]]:
+        # Operational-only safe projection; never return file_path.
         return self._execute(
             context,
             "EvidenceService.list_by_ticket",
@@ -62,6 +71,7 @@ class EvidenceService(ServiceBase):
         )
 
     def create_metadata(self, context, data: EvidenceCreateInput) -> OperationResult[EvidenceOutput]:
+        # Operational-only legacy entry; Citizens cannot provide file_path.
         def work():
             if self.tickets.get_by_id(data.ticket_id) is None:
                 raise self._missing("ticket", context)
@@ -76,3 +86,32 @@ class EvidenceService(ServiceBase):
             write=True,
             actor_required=True,
         )
+
+    def list_citizen_ticket_evidence(
+        self,
+        context,
+        ticket_code: str,
+    ) -> OperationResult[CitizenEvidenceListOutput]:
+        # Require current Citizen to be ticket.reported_by.
+        # Include purpose=report only and content_available from storage.exists().
+        ...
+
+    def list_citizen_contribution_evidence(
+        self,
+        context,
+        contribution_id: str,
+    ) -> OperationResult[CitizenEvidenceListOutput]:
+        # Require contribution.actor_user_id == current actor.
+        ...
+
+    def open_citizen_content(
+        self,
+        context,
+        evidence_id: int,
+    ) -> OperationResult[EvidenceContentDescriptor]:
+        # Authorize before opening the storage key.
+        # Citizen owner reads original ticket report evidence.
+        # Citizen contributor reads only evidence linked to own contribution.
+        # Legacy evidence allows only verified original uploader.
+        # Missing authorized blob returns EVD-004 before headers are sent.
+        ...

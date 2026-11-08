@@ -9,7 +9,10 @@ from typing import Any
 from .access_continuity import AccessCoordinator, AccessStatus
 from .citizen_connector import HttpCitizenReportConnector
 from .citizen_report import CitizenReportController
+from .citizen_evidence import CitizenEvidenceController
+from .citizen_evidence_view import CitizenEvidenceView
 from .citizen_report_view import CitizenReportView
+from .device_photos import FletDevicePhotoPicker
 from .report_attempt_storage import SecureReportAttemptStorage, UnavailableReportAttemptStorage
 from .access_storage import SecureAccessStorage, UnavailableAccessStorage
 from .authentication import AuthenticationState
@@ -83,7 +86,13 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         HttpCitizenReportConnector(connector),
         _build_report_attempt_storage(),
     )
+    citizen_evidence = CitizenEvidenceController(
+        connector=HttpCitizenReportConnector(connector),
+        request_key_provider=citizen_report,
+        access_scope=access,
+    )
     citizen_report_view: CitizenReportView | None = None
+    consultation_code: str | None = None
     restored_report_accounts: set[int] = set()
     login: LoginController | None = None
     registration = RegistrationController(connector)
@@ -169,6 +178,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_recovery()
         elif active is ScreenName.CITIZEN_REPORT:
             render_citizen_report()
+        elif active is ScreenName.CITIZEN_TICKET:
+            render_citizen_ticket()
         else:
             render_role_destination(active)
 
@@ -566,12 +577,44 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         render_current()
 
     def _open_report_ticket(code: str) -> None:
-        try:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Consulta el reporte con el código {code}."))
-            page.snack_bar.open = True
-            refresh()
-        except (AttributeError, TypeError):
-            return
+        nonlocal consultation_code
+        consultation_code = code
+        navigation.open(ScreenName.CITIZEN_TICKET)
+        render_current()
+
+    def render_citizen_ticket() -> None:
+        state = citizen_report.snapshot()
+        ticket = state.confirmation if state.confirmation is not None else {}
+        code = consultation_code or str(ticket.get("code", ""))
+
+        async def new_report(event: Any) -> None:
+            account_id = _report_account_id()
+            if account_id is None:
+                return
+            await citizen_report.start_new_report(account_id)
+            navigation.open(ScreenName.CITIZEN_REPORT)
+            render_current()
+
+        def back(event: Any) -> None:
+            navigation.open(ScreenName.CITIZEN_REPORT)
+            render_current()
+
+        replace(
+            ft.Column(
+                controls=[
+                    ft.Text("Consulta del reporte", size=22, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"Código: {code}", selectable=True),
+                    ft.Text(f"Estado: {ticket.get('status', 'Sin información')}"),
+                    ft.Text(f"Fecha y hora: {ticket.get('created_at', 'Sin información')}"),
+                    ft.Text("Descripción", weight=ft.FontWeight.BOLD),
+                    ft.Text(state.description or "Sin descripción disponible."),
+                    ft.Button("Registrar otra falla", on_click=new_report),
+                    ft.TextButton("Volver al reporte", on_click=back),
+                ],
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            )
+        )
 
     async def _restore_citizen_report_attempt(account_id: int) -> None:
         await citizen_report.restore_pending(account_id)
@@ -590,6 +633,12 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                 refresh=render_current,
                 close=_close_citizen_report,
                 open_ticket=_open_report_ticket,
+                evidence_view=CitizenEvidenceView(
+                    ft,
+                    citizen_evidence,
+                    device_picker=FletDevicePhotoPicker(page),
+                    refresh=render_current,
+                ),
             )
         account_id = _report_account_id()
         if account_id is not None and account_id not in restored_report_accounts:
@@ -614,6 +663,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         first_name = str(session.user.get("first_name", ""))
 
         async def logout(event: Any) -> None:
+            await citizen_evidence.dispose()
+            citizen_evidence.clear_account_private_state()
             await access.sign_out()
             citizen_report.reset()
             restored_report_accounts.clear()
@@ -672,6 +723,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         elif active is ScreenName.CITIZEN_REPORT:
             navigation.open(ScreenName.CITIZEN)
             render_current()
+        elif active is ScreenName.CITIZEN_TICKET:
+            navigation.open(ScreenName.CITIZEN_REPORT)
+            render_current()
         elif active is ScreenName.LOGIN:
             assert login is not None
             login.abandon()
@@ -685,6 +739,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_current()
 
     async def on_disconnect(event: Any) -> None:
+        await citizen_evidence.dispose()
+        citizen_evidence.clear_account_private_state()
         assert login is not None
         login.abandon()
         registration.abandon()

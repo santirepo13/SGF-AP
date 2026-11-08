@@ -1,5 +1,7 @@
 from .action_repository_interface import ActionRepositoryInterface
 from .evidence_repository_interface import EvidenceRepositoryInterface
+from .evidence_upload_repository_interface import EvidenceUploadRepositoryInterface
+from .citizen_contribution_repository_interface import CitizenContributionRepositoryInterface
 from .failure_type_repository_interface import FailureTypeRepositoryInterface
 from .history_event_repository_interface import HistoryEventRepositoryInterface
 from .priority_repository_interface import PriorityRepositoryInterface
@@ -7,4 +9,4 @@ from .status_repository_interface import StatusRepositoryInterface
 from .ticket_match_guard_repository_interface import TicketMatchGuardRepositoryInterface
 from .ticket_repository_interface import TicketRepositoryInterface
 
-__all__ = ["ActionRepositoryInterface", "EvidenceRepositoryInterface", "FailureTypeRepositoryInterface", "HistoryEventRepositoryInterface", "PriorityRepositoryInterface", "StatusRepositoryInterface", "TicketMatchGuardRepositoryInterface", "TicketRepositoryInterface"]
+__all__ = ["ActionRepositoryInterface", "EvidenceRepositoryInterface", "EvidenceUploadRepositoryInterface", "CitizenContributionRepositoryInterface", "FailureTypeRepositoryInterface", "HistoryEventRepositoryInterface", "PriorityRepositoryInterface", "StatusRepositoryInterface", "TicketMatchGuardRepositoryInterface", "TicketRepositoryInterface"]

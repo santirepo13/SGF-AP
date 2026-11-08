@@ -23,6 +23,26 @@ _DEFINITIONS: dict[ErrorCode, ErrorDefinition] = {
     ErrorCode.INVALID_REFERENCE: ErrorDefinition(ErrorCode.INVALID_REFERENCE, "Relación", "Una referencia indicada no existe o no corresponde al registro relacionado."),
     ErrorCode.UNIQUE_CONFLICT: ErrorDefinition(ErrorCode.UNIQUE_CONFLICT, "Conflicto", "Ya existe un registro con los datos que deben ser únicos."),
     ErrorCode.OPERATION_KEY_REUSED: ErrorDefinition(ErrorCode.OPERATION_KEY_REUSED, "Conflicto", "El identificador del intento ya se utilizó con otros datos."),
+    ErrorCode.EVIDENCE_UPLOAD_STATE: ErrorDefinition(
+        ErrorCode.EVIDENCE_UPLOAD_STATE,
+        "Carga no disponible",
+        "La fotografía no está disponible para esta operación.",
+    ),
+    ErrorCode.EVIDENCE_TOO_LARGE: ErrorDefinition(
+        ErrorCode.EVIDENCE_TOO_LARGE,
+        "Fotografía demasiado grande",
+        "La fotografía supera el tamaño permitido.",
+    ),
+    ErrorCode.EVIDENCE_FORMAT_INVALID: ErrorDefinition(
+        ErrorCode.EVIDENCE_FORMAT_INVALID,
+        "Formato de fotografía no permitido",
+        "La fotografía no tiene un formato de imagen permitido.",
+    ),
+    ErrorCode.EVIDENCE_STORAGE_UNAVAILABLE: ErrorDefinition(
+        ErrorCode.EVIDENCE_STORAGE_UNAVAILABLE,
+        "Almacenamiento de fotografías no disponible",
+        "No fue posible conservar o leer la fotografía de forma segura.",
+    ),
     ErrorCode.INACTIVE_USER: ErrorDefinition(ErrorCode.INACTIVE_USER, "Usuario", "La cuenta no se encuentra habilitada."),
     ErrorCode.INVALID_CREDENTIALS: ErrorDefinition(ErrorCode.INVALID_CREDENTIALS, "Usuario", "El correo electrónico o la contraseña son incorrectos."),
     ErrorCode.INVALID_ACCESS_TOKEN: ErrorDefinition(ErrorCode.INVALID_ACCESS_TOKEN, "Usuario", "La credencial de acceso no es válida."),

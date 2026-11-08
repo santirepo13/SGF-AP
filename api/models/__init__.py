@@ -2,13 +2,15 @@
 
 from .operation_attempt import OperationAttempt
 from .tickets import Action, Evidence, FailureType, HistoryEvent, OpenTicketMatch, Priority, Status, Ticket
+from .tickets.evidence_upload import EvidenceUpload
+from .tickets.citizen_contribution import CitizenContribution
 from .address import Address, CrossBisCode, CrossQuadrant, CrossSuffixLetter, RoadBisCode, RoadQuadrant, RoadSuffixLetter, RoadType
 from .geolocation import Commune, Municipality, Neighborhood
 from .users import Crew, CrewMember, Role, User
 
 __all__ = [
     "Action", "Address", "Commune", "Crew", "CrewMember", "CrossBisCode",
-    "CrossQuadrant", "CrossSuffixLetter", "Evidence", "FailureType",
+    "CrossQuadrant", "CrossSuffixLetter", "Evidence", "EvidenceUpload", "CitizenContribution", "FailureType",
     "HistoryEvent", "Municipality", "Neighborhood", "OpenTicketMatch", "OperationAttempt", "Priority", "RoadBisCode",
     "RoadQuadrant", "RoadSuffixLetter", "RoadType", "Role", "Status", "Ticket",
     "User",

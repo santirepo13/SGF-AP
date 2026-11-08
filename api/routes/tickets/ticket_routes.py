@@ -15,6 +15,8 @@ from api.contracts import (
     CitizenMatchesOutput,
     CitizenTicketCreateInput,
     CitizenTicketRegistrationOutput,
+    CitizenContributionInput,
+    CitizenContributionOutput,
     TicketAssignmentInput,
     TicketAttentionInput,
     TicketClosureReviewInput,
@@ -46,6 +48,16 @@ _CREATE = HttpOperation("TicketService", "create", success_status=201)
 _REGISTER_CITIZEN = HttpOperation("TicketService", "register_citizen", no_store=True)
 _FIND_CITIZEN_MATCHES = HttpOperation("TicketService", "find_citizen_matches", no_store=True)
 _GET_CITIZEN_ATTEMPT = HttpOperation("TicketService", "get_citizen_attempt", no_store=True)
+_CONTRIBUTE_CITIZEN_EVIDENCE = HttpOperation(
+    "TicketService",
+    "contribute_citizen_evidence",
+    no_store=True,
+)
+_GET_CITIZEN_CONTRIBUTION_ATTEMPT = HttpOperation(
+    "TicketService",
+    "get_citizen_contribution_attempt",
+    no_store=True,
+)
 _GET_BY_ID = HttpOperation("TicketService", "get_by_id")
 _GET_BY_CODE = HttpOperation("TicketService", "get_by_code")
 _LIST_BY_FILTERS = HttpOperation("TicketService", "list_by_filters")
@@ -88,7 +100,12 @@ _CITIZEN_CONFIRMATION_SCHEMA = {
         "code": {"type": "string", "pattern": "^SGF-[0-9A-F]{20}$"},
         "created_at": {"type": "string", "format": "date-time"},
         "status": {"type": "string", "enum": ["Registered"]},
-        "evidence_count": {"type": "integer", "minimum": 0},
+        "evidence_count": {"type": "integer", "minimum": 0, "maximum": 3},
+        "evidence_ids": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {"type": "integer", "minimum": 1},
+        },
     },
 }
 _CITIZEN_REGISTRATION_OUTPUT_SCHEMA = {
@@ -150,6 +167,102 @@ _CITIZEN_MATCH_INPUT_SCHEMA = {
         "failure_type_id": {"type": "integer", "minimum": 1},
     },
 }
+
+_CITIZEN_CONTRIBUTION_SCHEMA = {
+    "type": "object",
+    "required": [
+        "request_key",
+        "target_code",
+        "address_id",
+        "failure_type_id",
+        "temporary_upload_ids",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "request_key": {"type": "string", "minLength": 1, "maxLength": 128},
+        "target_code": {"type": "string", "pattern": "^SGF-[0-9A-F]{20}$"},
+        "address_id": {"type": "integer", "minimum": 1},
+        "failure_type_id": {"type": "integer", "minimum": 1},
+        "temporary_upload_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": True,
+            "items": {"type": "string", "format": "uuid"},
+        },
+    },
+}
+
+@router.get(
+    "/citizen/mine/{code}/evidences",
+    status_code=200,
+    response_class=JSONResponse,
+)
+def list_citizen_ticket_evidences(
+    code: str,
+    request: Request,
+    evidence_service: EvidenceServiceDependency,
+    adapter: HttpAdapterDependency,
+) -> JSONResponse:
+    return _execute(
+        request,
+        adapter,
+        evidence_service,
+        _LIST_CITIZEN_TICKET_EVIDENCE,
+        code,
+    )
+
+
+@router.post(
+    "/citizen/contributions",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_CONTRIBUTION_OUTPUT_SCHEMA),
+)
+async def contribute_citizen_evidence(
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = await read_json_contract(
+        request,
+        CitizenContributionInput,
+        correlation_id=correlation_id,
+    )
+    return _execute(
+        request,
+        adapter,
+        ticket_service,
+        _CONTRIBUTE_CITIZEN_EVIDENCE,
+        data,
+    )
+
+
+@router.get(
+    "/citizen/contributions/attempts/{request_key}",
+    status_code=200,
+    response_class=JSONResponse,
+)
+def get_citizen_contribution_attempt(
+    request_key: str,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    data = build_contract(
+        CitizenAttemptLookupInput,
+        path_values={"request_key": request_key},
+        correlation_id=correlation_id,
+    )
+    return _execute(
+        request,
+        adapter,
+        ticket_service,
+        _GET_CITIZEN_CONTRIBUTION_ATTEMPT,
+        data,
+    )
 
 
 def _execute(

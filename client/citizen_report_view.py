@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .citizen_report import CitizenReportController, CitizenReportFormState, CitizenReportStatus
+from .citizen_evidence_view import CitizenEvidenceView
 from .design_tokens import COLORS
 
 
@@ -249,7 +250,12 @@ class CitizenReportView:
             controls.append(self.ft.TextButton("Descartar borrador local", on_click=self._discard))
         controls.extend(
             [
-                self.ft.Button("Enviar reporte", on_click=self._submit, disabled=submit_disabled),
+                self._evidence_view.build(),
+                self.ft.Button(
+                    "Enviar reporte",
+                    on_click=self._submit,
+                    disabled=submit_disabled or not self._evidence_view.can_submit_report,
+                ),
                 self.ft.TextButton("Volver", on_click=lambda _: self._close(), disabled=disabled),
             ]
         )
@@ -263,8 +269,12 @@ class CitizenReportView:
                 self.ft.Text("Reporte registrado", size=22, weight=self.ft.FontWeight.BOLD),
                 self.ft.Text(f"Código: {code}", selectable=True),
                 self.ft.Text(f"Estado: {ticket.get('status', 'Registered')}"),
+                self.ft.Text(
+                    f"Fotografías asociadas: {ticket.get('evidence_count', 0)}"
+                ),
                 self.ft.Text(f"Fecha y hora: {ticket.get('created_at', '')}"),
                 self.ft.Button("Abrir consulta", on_click=lambda _: self._open_ticket(code)),
+                self.ft.Button("Registrar otra falla", on_click=self._new_report),
                 self.ft.TextButton("Volver al área ciudadana", on_click=lambda _: self._close()),
             ],
             spacing=12,
@@ -289,7 +299,15 @@ class CitizenReportView:
                     ),
                 )
             )
+            if self._evidence_view.ready_count:
+                items.append(
+                    self.ft.Button(
+                        f"Aportar fotografías a {match['code']}",
+                        on_click=self._contribute_to_match(str(match["code"])),
+                    )
+                )
         items.append(self.ft.Text("El aporte de fotografías estará disponible en el recorrido de evidencias.", size=12))
+        items.append(self.ft.Button("Registrar otra falla", on_click=self._new_report))
         items.append(self.ft.TextButton("Volver al área ciudadana", on_click=lambda _: self._close()))
         return self.ft.Column(controls=items, spacing=10, horizontal_alignment=self.ft.CrossAxisAlignment.STRETCH)
 
@@ -341,17 +359,41 @@ class CitizenReportView:
         if account_id is None:
             return
         scope = self._capture_scope()
-        await asyncio.to_thread(self.controller.submit, account_id)
+        submission = asyncio.create_task(self.controller.submit(account_id))
+        await asyncio.sleep(0)
+        self._refresh()
+        await submission
         if await self._handle_protected_response(scope, self.controller.take_last_protected_response()):
             return
         self._refresh()
+
+    def _contribute_to_match(self, target_code: str):
+        async def handler(event: Any) -> None:
+            account_id = self._account_id()
+            if account_id is None:
+                return
+            scope = self._capture_scope()
+            await self.controller.contribute_to_match(
+                account_id=account_id,
+                target_code=target_code,
+            )
+            if await self._handle_protected_response(
+                scope,
+                self.controller.take_last_protected_response(),
+            ):
+                return
+            self._refresh()
+        return handler
 
     async def _retry(self, event: Any) -> None:
         account_id = self._account_id()
         if account_id is None:
             return
         scope = self._capture_scope()
-        await asyncio.to_thread(self.controller.retry_pending, account_id)
+        submission = asyncio.create_task(self.controller.retry_pending(account_id))
+        await asyncio.sleep(0)
+        self._refresh()
+        await submission
         if await self._handle_protected_response(scope, self.controller.take_last_protected_response()):
             return
         self._refresh()
@@ -361,9 +403,19 @@ class CitizenReportView:
         if account_id is None:
             return
         scope = self._capture_scope()
-        await asyncio.to_thread(self.controller.check_pending, account_id)
+        lookup = asyncio.create_task(self.controller.check_pending(account_id))
+        await asyncio.sleep(0)
+        self._refresh()
+        await lookup
         if await self._handle_protected_response(scope, self.controller.take_last_protected_response()):
             return
+        self._refresh()
+
+    async def _new_report(self, event: Any) -> None:
+        account_id = self._account_id()
+        if account_id is None:
+            return
+        await self.controller.start_new_report(account_id)
         self._refresh()
 
     async def _discard(self, event: Any) -> None:

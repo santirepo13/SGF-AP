@@ -48,6 +48,7 @@ from .tickets.citizen_ticket_types import (
     CitizenTicketRegistrationOutput,
 )
 from .tickets.evidence_types import EvidenceCreateInput, EvidenceOutput, EvidenceLookupInput
+from .tickets.evidence_upload_types import *
 from .tickets.history_event_types import HistoryEventCreateInput, HistoryEventLookupInput, HistoryEventOutput
 from .operation_result import OperationResult
 from .tickets.ticket_types import (

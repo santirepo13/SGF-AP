@@ -112,6 +112,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         application.state.db_provider = provider
         application.state.dependencies = prepare_application_dependencies(
             provider,
+            api_config=application.state.api_config,
             identity_provider=getattr(application.state, "identity_provider", None),
             permission_checker=getattr(application.state, "permission_checker", None),
             correlation_ids=getattr(application.state, "correlation_ids", None),
@@ -123,6 +124,10 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
         application.state.http_adapter = HttpOperationAdapter()
         logger.info("application_dependencies_prepared")
+        logger.info(
+            "evidence_upload_capability_ready enabled=%s",
+            application.state.api_config.evidence_storage.enabled,
+        )
     except BaseException:
         logger.exception("api_startup_failed")
         _release_application_resources(application)

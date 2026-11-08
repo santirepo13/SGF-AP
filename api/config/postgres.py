@@ -19,11 +19,25 @@ class PostgresConnectionProvider:
         self._connector = connector
 
     def connect(self) -> Any:
+        connection = None
         try:
-            if self._connector is None:
-                return _default_connector(self.config)
-            return self._connector(**self.config.connection_kwargs)
+            connection = (
+                _default_connector(self.config)
+                if self._connector is None
+                else self._connector(**self.config.connection_kwargs)
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.execute("SET TIME ZONE 'America/Bogota'")
+            finally:
+                cursor.close()
+            return connection
         except Exception as exc:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
             raise ApplicationError.persistence_failure(cause=exc) from exc
 
     @contextmanager

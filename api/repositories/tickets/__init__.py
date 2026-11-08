@@ -1,5 +1,7 @@
 from .action_repository import ActionRepository
 from .evidence_repository import EvidenceRepository
+from .evidence_upload_repository import EvidenceUploadRepository
+from .citizen_contribution_repository import CitizenContributionRepository
 from .failure_type_repository import FailureTypeRepository
 from .history_event_repository import HistoryEventRepository
 from .priority_repository import PriorityRepository

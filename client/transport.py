@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
+from pathlib import Path
 import json
 import socket
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -22,6 +24,22 @@ class ConnectorResponse:
     status_code: int
     headers: dict[str, str]
     payload: dict[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class MultipartFile:
+    field_name: str
+    filename: str
+    media_type: str | None
+    stream_factory: Callable[[], BinaryIO] = field(repr=False)
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class BinaryConnectorResponse:
+    status_code: int
+    headers: dict[str, str]
+    stream: BinaryIO = field(repr=False)
 
 
 class ConnectorError(Exception):
@@ -157,6 +175,33 @@ class RegistrationTransport:
                 path = f"{path}{separator}{query}"
         access_token = self._supplied_access_token() if requires_identity else None
         return self._request("GET", path, access_token=access_token)
+
+    def post_multipart(
+        self,
+        path: str,
+        *,
+        fields: Mapping[str, str],
+        file: MultipartFile,
+        requires_identity: bool,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> ConnectorResponse:
+        # Build one bounded multipart body as a streaming iterable.
+        # Preserve Basic + User-Access-Token headers.
+        # Reject redirects; do not log image data, metadata, or credentials.
+        # Count transmitted file bytes for progress callbacks.
+        ...
+
+    def get_binary(
+        self,
+        path: str,
+        *,
+        requires_identity: bool,
+        maximum_bytes: int,
+    ) -> BinaryConnectorResponse | ConnectorResponse:
+        # Validate image Content-Type and Content-Length before exposing bytes.
+        # JSON error envelopes remain ConnectorResponse.
+        # Never decode a server error as a photograph.
+        ...
 
     def _supplied_access_token(self) -> str:
         access_token = self._access_token_supplier() if self._access_token_supplier is not None else None

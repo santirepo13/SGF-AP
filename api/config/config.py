@@ -68,6 +68,41 @@ class CitizenTicketConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class EvidenceStorageConfig:
+    enabled: bool = False
+    root: Path | None = None
+    max_report_photos: int = 3
+    max_file_bytes: int = 10_000_000
+    max_image_pixels: int = 40_000_000
+    multipart_envelope_max_bytes: int = 65_536
+    receiving_lease_seconds: int = 300
+    receiving_max_seconds: int = 900
+    ready_ttl_seconds: int = 86_400
+    orphan_safety_seconds: int = 900
+    allowed_media_types: frozenset[str] = frozenset(
+        {"image/jpeg", "image/png", "image/webp"}
+    )
+
+    def __post_init__(self) -> None:
+        if self.enabled and self.root is None:
+            raise ValueError("evidence storage root is required when uploads are enabled")
+        if self.root is not None and not self.root.is_absolute():
+            raise ValueError("evidence storage root must be absolute")
+        for value in (
+            self.max_report_photos,
+            self.max_file_bytes,
+            self.max_image_pixels,
+            self.multipart_envelope_max_bytes,
+            self.receiving_lease_seconds,
+            self.receiving_max_seconds,
+            self.ready_ttl_seconds,
+            self.orphan_safety_seconds,
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError("evidence storage limits must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class APIConfig:
     """Server port, HTTP Basic credentials, and user access-token settings."""
 
@@ -78,6 +113,7 @@ class APIConfig:
     access_token: AccessTokenConfig | None = field(default=None, repr=False)
     password_recovery: PasswordRecoveryConfig | None = field(default=None, repr=False)
     citizen_ticket: CitizenTicketConfig = field(default_factory=CitizenTicketConfig)
+    evidence_storage: EvidenceStorageConfig = field(default_factory=EvidenceStorageConfig)
 
     @property
     def access_token_secret(self) -> bytes:
@@ -132,6 +168,7 @@ def load_api_config(
         access_token=access_token,
         password_recovery=_load_password_recovery_config(values, access_token),
         citizen_ticket=_load_citizen_ticket_config(values),
+        evidence_storage=_load_evidence_storage_config(values),
     )
 
 
@@ -196,6 +233,69 @@ def _load_citizen_ticket_config(values: Mapping[str, str]) -> CitizenTicketConfi
     return CitizenTicketConfig(
         description_max_length=positive("CITIZEN_TICKET_DESCRIPTION_MAX_LENGTH", 4_000),
         json_body_max_bytes=positive("CITIZEN_TICKET_JSON_BODY_MAX_BYTES", 65_536),
+    )
+
+
+def _load_evidence_storage_config(
+    values: Mapping[str, str],
+) -> EvidenceStorageConfig:
+    def positive(name: str, default: int) -> int:
+        raw = values.get(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise ApplicationError.invalid_value(
+                name,
+                "El valor debe ser un entero positivo.",
+                cause=error,
+            ) from error
+        if value <= 0:
+            raise ApplicationError.invalid_value(
+                name,
+                "El valor debe ser un entero positivo.",
+            )
+        return value
+
+    enabled = values.get("EVIDENCE_UPLOADS_ENABLED", "false").strip().casefold()
+    if enabled not in {"true", "false"}:
+        raise ApplicationError.invalid_value(
+            "EVIDENCE_UPLOADS_ENABLED",
+            "Debe ser true o false.",
+        )
+
+    root_value = values.get("EVIDENCE_STORAGE_ROOT", "").strip()
+    if enabled == "true" and not root_value:
+        raise ApplicationError.invalid_value(
+            "EVIDENCE_STORAGE_ROOT",
+            "La raíz privada de evidencias es obligatoria.",
+        )
+
+    return EvidenceStorageConfig(
+        enabled=enabled == "true",
+        root=Path(root_value).resolve() if root_value else None,
+        max_report_photos=positive("EVIDENCE_MAX_REPORT_PHOTOS", 3),
+        max_file_bytes=positive("EVIDENCE_MAX_FILE_BYTES", 10_000_000),
+        max_image_pixels=positive("EVIDENCE_MAX_IMAGE_PIXELS", 40_000_000),
+        multipart_envelope_max_bytes=positive(
+            "EVIDENCE_MULTIPART_ENVELOPE_MAX_BYTES",
+            65_536,
+        ),
+        receiving_lease_seconds=positive(
+            "EVIDENCE_RECEIVING_LEASE_SECONDS",
+            300,
+        ),
+        receiving_max_seconds=positive(
+            "EVIDENCE_RECEIVING_MAX_SECONDS",
+            900,
+        ),
+        ready_ttl_seconds=positive(
+            "EVIDENCE_READY_TTL_SECONDS",
+            86_400,
+        ),
+        orphan_safety_seconds=positive(
+            "EVIDENCE_ORPHAN_SAFETY_SECONDS",
+            900,
+        ),
     )
 
 

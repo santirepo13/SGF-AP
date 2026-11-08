@@ -13,6 +13,7 @@ from api.contracts import (
     CitizenTicketConfirmation,
     CitizenTicketCreateInput,
     CitizenTicketRegistrationOutput,
+    CitizenContributionOutput,
     UNSET,
 )
 
@@ -42,6 +43,32 @@ def citizen_registration_digest(data: CitizenTicketCreateInput) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(serialized).hexdigest()
+
+
+def citizen_contribution_digest(data: CitizenContributionInput) -> str:
+    return _digest(
+        {
+            "schema_version": "1",
+            "operation": "TicketService.contribute_citizen_evidence",
+            "request_key": data.request_key,
+            "target_code": data.target_code,
+            "address_id": data.address_id,
+            "failure_type_id": data.failure_type_id,
+            "temporary_upload_ids": [str(value) for value in data.temporary_upload_ids],
+        }
+    )
+
+
+def contribution_result_payload(
+    value: CitizenContributionOutput,
+) -> dict[str, object]:
+    ...
+
+
+def contribution_result_from_payload(
+    value: Mapping[str, object],
+) -> CitizenContributionOutput:
+    ...
 
 
 def registration_result_payload(result: CitizenTicketRegistrationOutput) -> dict[str, object]:

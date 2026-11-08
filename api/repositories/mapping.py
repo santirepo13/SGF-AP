@@ -4,7 +4,9 @@ import json
 
 from api.enums import ActionName, PriorityName, RoleName, StatusName
 from api.models import (
-    Action, Address, Commune, Crew, CrewMember, Evidence, FailureType,
+    Action, Address, Commune, Crew, CrewMember, Evidence,
+    EvidenceUpload,
+    CitizenContribution, FailureType,
     HistoryEvent, Municipality, Neighborhood, OpenTicketMatch, OperationAttempt, Priority, Role, Status,
     Ticket, User,
 )
@@ -67,7 +69,27 @@ def open_ticket_match(row):
     )
 
 
-def evidence(row): return Evidence(_v(row, "id"), _v(row, "ticket_id"), _v(row, "file_path"), _v(row, "captured_at"), _v(row, "uploaded_by"))
+def evidence(row):
+    return Evidence(
+        _v(row, "id"),
+        _v(row, "ticket_id"),
+        _v(row, "file_path"),
+        _v(row, "captured_at"),
+        _v(row, "uploaded_by"),
+        _v(row, "uploaded_at"),
+        _v(row, "capture_source"),
+        _v(row, "media_type"),
+        _v(row, "size_bytes"),
+        _v(row, "purpose"),
+    )
+
+
+def evidence_upload(row):
+    return EvidenceUpload(...)
+
+
+def citizen_contribution(row):
+    return CitizenContribution(...)
 def history_event(row): return HistoryEvent(_v(row, "id"), _v(row, "ticket_id"), _v(row, "user_id"), _v(row, "action_id"), _v(row, "event_time"))
 
 

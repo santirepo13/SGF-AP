@@ -1,3 +1,10 @@
+# Evidencia fotográfica ciudadana
+
+- CAMERA se declara únicamente para captura de fotografías.
+- No se solicita RECORD_AUDIO.
+- Denegar cámara o galería mantiene disponible el reporte manual.
+- Las fotografías se envían mediante HTTPS a la API remota; no se publican desde Flet.
+
 # Cliente Android de SGF-AP
 
 La implementación visual principal está en `main.py` y `client/flet_app.py`.

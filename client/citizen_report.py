@@ -57,6 +57,8 @@ class CitizenReportFormState:
     confirmation: dict[str, object] | None = None
     matches: tuple[dict[str, object], ...] = ()
     pending_payload: dict[str, object] | None = field(default=None, repr=False)
+    evidence_request_key: str | None = None
+    evidence_upload_ids: tuple[str, ...] = ()
     operation_key_reused: bool = False
     storage_warning: str | None = None
 
@@ -199,8 +201,11 @@ class CitizenReportController:
             errors["contact_phone"] = "El teléfono admite hasta 32 caracteres."
         return errors
 
-    def submit(self, account_id: int) -> CitizenReportFormState:
-        """Resolve the structured address, persist the frozen intent, then register it."""
+    async def submit(self, account_id: int) -> CitizenReportFormState:
+        # Block ticket submission while any active photo is selected/uploading/failed.
+        # Submit zero photos normally.
+        # Preserve ready uploads on outcome=matches for explicit contribution.
+        """Resolve the address, securely save the intent, and submit without blocking Flet's event loop."""
 
         with self._lock:
             if not self.state.can_submit:
@@ -215,7 +220,11 @@ class CitizenReportController:
 
         self._set_submitting()
         try:
-            address_response = self._call("create_or_reuse_address", self._address_payload())
+            address_response = await asyncio.to_thread(
+                self._call,
+                "create_or_reuse_address",
+                self._address_payload(),
+            )
             self._remember_protected_response(address_response)
         except BaseException as error:
             return self._apply_transport_error(error)
@@ -230,7 +239,7 @@ class CitizenReportController:
             payload = self._report_payload(request_key, address_id)
             self.state.pending_payload = dict(payload)
         try:
-            self._await_storage(self.storage.save(StoredReportAttempt(account_id, request_key, payload)))
+            await self.storage.save(StoredReportAttempt(account_id, request_key, payload))
             with self._lock:
                 self.state.storage_warning = None
         except (ReportAttemptStorageError, ValueError):
@@ -240,13 +249,24 @@ class CitizenReportController:
                     "si cierras la aplicación no podrás recuperarlo automáticamente."
                 )
         try:
-            response = self._call("register_report", payload)
+            response = await asyncio.to_thread(self._call, "register_report", payload)
             self._remember_protected_response(response)
         except BaseException as error:
             return self._apply_transport_error(error)
-        return self._apply_registration_response(response, account_id)
+        return await self._apply_registration_response(response, account_id)
 
-    def retry_pending(self, account_id: int) -> CitizenReportFormState:
+    async def contribute_to_match(
+        self,
+        *,
+        account_id: int,
+        target_code: str,
+    ) -> CitizenReportFormState:
+        # Requires 1..3 ready uploads.
+        # Uses TicketService.contribute_citizen_evidence namespace/recovery.
+        # Never changes target ticket ownership or state locally.
+        ...
+
+    async def retry_pending(self, account_id: int) -> CitizenReportFormState:
         """Resend the exact stored intent without changing its request key or address."""
 
         with self._lock:
@@ -261,13 +281,13 @@ class CitizenReportController:
             self.state.general_message = None
             self.state.field_errors.clear()
         try:
-            response = self._call("register_report", payload)
+            response = await asyncio.to_thread(self._call, "register_report", payload)
             self._remember_protected_response(response)
         except BaseException as error:
             return self._apply_transport_error(error)
-        return self._apply_registration_response(response, account_id)
+        return await self._apply_registration_response(response, account_id)
 
-    def check_pending(self, account_id: int) -> CitizenReportFormState:
+    async def check_pending(self, account_id: int) -> CitizenReportFormState:
         with self._lock:
             request_key = self.state.request_key
             if self.state.status is not CitizenReportStatus.UNKNOWN or not request_key:
@@ -275,7 +295,7 @@ class CitizenReportController:
             self.state.status = CitizenReportStatus.SUBMITTING
             self.state.general_message = None
         try:
-            response = self._call("get_report_attempt", request_key=request_key)
+            response = await asyncio.to_thread(self._call, "get_report_attempt", request_key=request_key)
             self._remember_protected_response(response)
         except BaseException as error:
             return self._apply_transport_error(error)
@@ -292,9 +312,10 @@ class CitizenReportController:
             )
         result = data["result"]
         assert isinstance(result, Mapping)
-        return self._apply_registration_data(result, account_id)
+        return await self._apply_registration_data(result, account_id)
 
     async def restore_pending(self, account_id: int) -> CitizenReportFormState:
+        # Restore report intent plus server upload references, never image bytes.
         """Load only the current account's saved uncertainty; never replay it automatically."""
 
         try:
@@ -379,6 +400,22 @@ class CitizenReportController:
             self._last_protected_response = None
             return self._copy_state()
 
+    async def start_new_report(self, account_id: int) -> CitizenReportFormState:
+        # Clear completed report state and release only non-consumed temporary selection state.
+        """Clear a completed local attempt before returning to a blank report form."""
+
+        with self._lock:
+            request_key = self.state.request_key
+        warning: str | None = None
+        try:
+            await self.storage.clear(account_id, request_key)
+        except ReportAttemptStorageError:
+            warning = "No se pudo eliminar el intento anterior guardado en este dispositivo."
+        with self._lock:
+            self.state = CitizenReportFormState(storage_warning=warning)
+            self._last_protected_response = None
+            return self._copy_state()
+
     def _editable(self) -> bool:
         return self.state.status in {CitizenReportStatus.EDITING, CitizenReportStatus.REJECTED}
 
@@ -426,6 +463,7 @@ class CitizenReportController:
             "address_id": address_id,
             "description": state.description,
             "email_notifications": state.email_notifications,
+            "temporary_upload_ids": list(state.evidence_upload_ids),
         }
         if state.contact_email:
             payload["contact_email"] = state.contact_email
@@ -449,11 +487,11 @@ class CitizenReportController:
             return data["id"]
         return None
 
-    def _apply_registration_response(self, response: object, account_id: int) -> CitizenReportFormState:
+    async def _apply_registration_response(self, response: object, account_id: int) -> CitizenReportFormState:
         status_code, payload = _response_parts(response)
         data = _successful_data(status_code, payload)
         if isinstance(data, Mapping):
-            return self._apply_registration_data(data, account_id)
+            return await self._apply_registration_data(data, account_id)
         if _is_error(payload) and _coherent_error(status_code, payload):
             if _is_result_unknown(payload):
                 return self._set_unknown(
@@ -463,7 +501,7 @@ class CitizenReportController:
             return self._apply_rejection(payload, "No fue posible registrar la falla.")
         return self._set_unknown("No fue posible confirmar el resultado del envío.", _correlation_id(payload))
 
-    def _apply_registration_data(self, data: Mapping[str, object], account_id: int) -> CitizenReportFormState:
+    async def _apply_registration_data(self, data: Mapping[str, object], account_id: int) -> CitizenReportFormState:
         with self._lock:
             expected_key = self.state.request_key
         if not _is_registration_output(data, expected_key):
@@ -479,9 +517,8 @@ class CitizenReportController:
                 self.state.general_message = "La falla fue registrada correctamente."
                 self.state.field_errors.clear()
                 request_key = self.state.request_key
-                snapshot = self._copy_state()
-            self._clear_saved(account_id, request_key)
-            return snapshot
+            await self._clear_saved(account_id, request_key)
+            return self.snapshot()
         matches = data["matches"]
         assert isinstance(matches, list)
         with self._lock:
@@ -491,9 +528,8 @@ class CitizenReportController:
             self.state.general_message = "Ya existe un reporte abierto para esta dirección y tipo de falla."
             self.state.field_errors.clear()
             request_key = self.state.request_key
-            snapshot = self._copy_state()
-        self._clear_saved(account_id, request_key)
-        return snapshot
+        await self._clear_saved(account_id, request_key)
+        return self.snapshot()
 
     def _apply_rejection(self, response: object, fallback: str) -> CitizenReportFormState:
         status_code, payload = _response_parts(response)
@@ -535,11 +571,11 @@ class CitizenReportController:
             self.state.field_errors.clear()
             return self._copy_state()
 
-    def _clear_saved(self, account_id: int, request_key: str | None) -> None:
+    async def _clear_saved(self, account_id: int, request_key: str | None) -> None:
         if request_key is None:
             return
         try:
-            self._await_storage(self.storage.clear(account_id, request_key))
+            await self.storage.clear(account_id, request_key)
         except ReportAttemptStorageError:
             with self._lock:
                 self.state.storage_warning = "El resultado fue confirmado, pero no se pudo eliminar el intento local guardado."
@@ -553,10 +589,6 @@ class CitizenReportController:
         if not callable(method):
             raise TypeError(f"citizen connector does not expose {method_name}")
         return method(*args, **kwargs)
-
-    @staticmethod
-    def _await_storage(awaitable):
-        return asyncio.run(awaitable)
 
     def _copy_state(self) -> CitizenReportFormState:
         return CitizenReportFormState(
