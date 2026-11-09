@@ -13,6 +13,18 @@ class EvidenceRepositoryInterface(Protocol):
         ticket_id: int,
         actor_user_id: int,
     ) -> int: ...
+    def create_from_upload(
+        self,
+        *,
+        ticket_id: int,
+        storage_key: str,
+        captured_at,
+        uploaded_by: int,
+        uploaded_at,
+        capture_source: str,
+        media_type: str,
+        size_bytes: int,
+    ) -> Evidence: ...
     def list_citizen_ticket_evidence(
         self,
         *,
@@ -31,3 +43,9 @@ class EvidenceRepositoryInterface(Protocol):
         contribution_id: str,
         actor_user_id: int,
     ) -> list[Evidence] | None: ...
+    def get_citizen_contribution_evidence_by_id(
+        self,
+        *,
+        evidence_id: int,
+        actor_user_id: int,
+    ) -> Evidence | None: ...

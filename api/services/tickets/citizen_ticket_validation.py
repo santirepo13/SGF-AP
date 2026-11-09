@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from api.contracts import (
     CitizenAttemptLookupInput,
     CitizenMatchInput,
@@ -164,10 +166,10 @@ def _validate_contact_phone(value: str | None | Unset, *, correlation_id: str | 
         )
 
 
-def _validate_temporary_upload_ids(value: list[str] | Unset, *, correlation_id: str | None) -> None:
+def _validate_temporary_upload_ids(value: tuple[UUID, ...] | Unset, *, correlation_id: str | None) -> None:
     if value is UNSET:
         return
-    if type(value) is not list:
+    if type(value) is not tuple:
         raise ApplicationError.invalid_value(
             "temporary_upload_ids",
             "Las referencias temporales deben ser una lista.",
@@ -179,10 +181,10 @@ def _validate_temporary_upload_ids(value: list[str] | Unset, *, correlation_id: 
             "Se permiten hasta tres referencias temporales.",
             correlation_id=correlation_id,
         )
-    if any(type(item) is not str or not item for item in value):
+    if any(not isinstance(item, UUID) for item in value):
         raise ApplicationError.invalid_value(
             "temporary_upload_ids",
-            "Cada referencia temporal debe ser texto opaco.",
+            "Cada referencia temporal debe ser un UUID válido.",
             correlation_id=correlation_id,
         )
     if len(set(value)) != len(value):

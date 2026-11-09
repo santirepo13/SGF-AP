@@ -10,6 +10,7 @@ from .transport import MultipartFile, RegistrationTransport
 
 
 class CitizenReportConnector(Protocol):
+    def for_access_token(self, access_token: str) -> CitizenReportConnector: ...
     def register_report(self, payload: Mapping[str, object]) -> object: ...
     def find_matches(self, *, address_id: int, failure_type_id: int) -> object: ...
     def get_report_attempt(self, *, request_key: str) -> object: ...
@@ -39,6 +40,10 @@ class HttpCitizenReportConnector:
 
     def __init__(self, transport: RegistrationTransport) -> None:
         self._transport = transport
+
+    def for_access_token(self, access_token: str) -> HttpCitizenReportConnector:
+        transport = self._transport.for_access_token(access_token)
+        return HttpCitizenReportConnector(transport)
 
     def register_report(self, payload: Mapping[str, object]) -> object:
         return self._transport.post_json(

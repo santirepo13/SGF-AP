@@ -25,7 +25,7 @@ from api.contracts import (
     TicketOperationInput,
     TicketOutput,
 )
-from api.dependencies import get_ticket_service
+from api.dependencies import get_evidence_service, get_ticket_service
 from api.errors import ApplicationError
 from api.http import (
     HttpOperation,
@@ -35,18 +35,22 @@ from api.http import (
     get_request_correlation_id,
     read_json_contract,
 )
-from api.interfaces.services import TicketServiceInterface
+from api.interfaces.services import EvidenceServiceInterface, TicketServiceInterface
 from api.routes.users._openapi import contract_schema, response_envelopes
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
 TicketServiceDependency = Annotated[TicketServiceInterface, Depends(get_ticket_service)]
+EvidenceServiceDependency = Annotated[EvidenceServiceInterface, Depends(get_evidence_service)]
 HttpAdapterDependency = Annotated[HttpOperationAdapter, Depends(get_http_adapter)]
 CorrelationIdDependency = Annotated[str, Depends(get_request_correlation_id)]
 
 _CREATE = HttpOperation("TicketService", "create", success_status=201)
 _REGISTER_CITIZEN = HttpOperation("TicketService", "register_citizen", no_store=True)
 _FIND_CITIZEN_MATCHES = HttpOperation("TicketService", "find_citizen_matches", no_store=True)
+_LIST_CITIZEN_TICKET_EVIDENCE = HttpOperation(
+    "EvidenceService", "list_citizen_ticket_evidence", no_store=True
+)
 _GET_CITIZEN_ATTEMPT = HttpOperation("TicketService", "get_citizen_attempt", no_store=True)
 _CONTRIBUTE_CITIZEN_EVIDENCE = HttpOperation(
     "TicketService",
@@ -165,6 +169,20 @@ _CITIZEN_MATCH_INPUT_SCHEMA = {
     "properties": {
         "address_id": {"type": "integer", "minimum": 1},
         "failure_type_id": {"type": "integer", "minimum": 1},
+    },
+}
+
+_CITIZEN_CONTRIBUTION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["request_key", "outcome", "contribution_id", "ticket_code", "created_at", "evidence_count", "evidence_ids"],
+    "properties": {
+        "request_key": {"type": "string"},
+        "outcome": {"type": "string", "enum": ["contributed"]},
+        "contribution_id": {"type": "string", "format": "uuid"},
+        "ticket_code": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "evidence_count": {"type": "integer", "minimum": 1, "maximum": 3},
+        "evidence_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}},
     },
 }
 

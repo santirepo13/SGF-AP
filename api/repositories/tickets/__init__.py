@@ -9,4 +9,16 @@ from .status_repository import StatusRepository
 from .ticket_match_guard_repository import TicketMatchGuardRepository
 from .ticket_repository import TicketFilters, TicketRepository
 
-__all__ = ["ActionRepository", "EvidenceRepository", "FailureTypeRepository", "HistoryEventRepository", "PriorityRepository", "StatusRepository", "TicketFilters", "TicketMatchGuardRepository", "TicketRepository"]
+__all__ = [
+    "ActionRepository",
+    "CitizenContributionRepository",
+    "EvidenceRepository",
+    "EvidenceUploadRepository",
+    "FailureTypeRepository",
+    "HistoryEventRepository",
+    "PriorityRepository",
+    "StatusRepository",
+    "TicketFilters",
+    "TicketMatchGuardRepository",
+    "TicketRepository",
+]

@@ -6,7 +6,6 @@ from hashlib import sha256
 from pathlib import Path
 import os
 import secrets
-import stat
 import tempfile
 
 from api.interfaces.storage import (
@@ -21,10 +20,16 @@ class EvidenceStorageUnavailable(RuntimeError):
     pass
 
 
+class EvidenceStorageTooLarge(RuntimeError):
+    pass
+
+
 class LocalEvidenceStorage(EvidenceStorageInterface):
     _CHUNK_SIZE = 256 * 1024
 
     def __init__(self, root: Path) -> None:
+        if root.is_symlink():
+            raise EvidenceStorageUnavailable("private evidence root must not be a symbolic link")
         self._root = root.resolve(strict=True)
         self._staging = self._root / ".staging"
         self._validate_root()
@@ -34,16 +39,15 @@ class LocalEvidenceStorage(EvidenceStorageInterface):
         stream,
         limits: EvidenceStorageLimits,
     ) -> StoredEvidenceObject:
-        temporary_path = self._create_private_temporary_file()
+        descriptor, temporary_path = self._create_private_temporary_file()
         digest = sha256()
         size_bytes = 0
         try:
-            with temporary_path.open("xb") as destination:
-                os.chmod(destination.fileno(), stat.S_IRUSR | stat.S_IWUSR)
+            with os.fdopen(descriptor, "wb") as destination:
                 while chunk := stream.read(self._CHUNK_SIZE):
                     size_bytes += len(chunk)
                     if size_bytes > limits.max_file_bytes:
-                        raise EvidenceStorageUnavailable("evidence size exceeds storage limit")
+                        raise EvidenceStorageTooLarge("evidence size exceeds storage limit")
                     digest.update(chunk)
                     destination.write(chunk)
                 destination.flush()
@@ -84,11 +88,41 @@ class LocalEvidenceStorage(EvidenceStorageInterface):
         except FileNotFoundError:
             return
 
+    def list_storage_keys_older_than(self, older_than, limit: int) -> list[str]:
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be positive")
+        if getattr(older_than, "tzinfo", None) is None or older_than.utcoffset() is None:
+            raise ValueError("older_than must include timezone information")
+        objects = self._root / "objects"
+        if not objects.exists():
+            return []
+        if objects.is_symlink():
+            raise EvidenceStorageUnavailable("private evidence objects must not be a symbolic link")
+        cutoff = older_than.timestamp()
+        result: list[str] = []
+        for directory, directories, names in os.walk(objects, followlinks=False):
+            directories[:] = [name for name in directories if not (Path(directory) / name).is_symlink()]
+            for name in names:
+                path = Path(directory) / name
+                if path.is_symlink():
+                    continue
+                try:
+                    resolved = path.resolve(strict=True)
+                    resolved.relative_to(self._root)
+                    if not resolved.is_file() or resolved.stat().st_mtime > cutoff:
+                        continue
+                except (FileNotFoundError, OSError, ValueError):
+                    continue
+                result.append(resolved.relative_to(self._root).as_posix())
+                if len(result) >= limit:
+                    return result
+        return result
+
     def _validate_root(self) -> None:
         if not self._root.is_dir():
             raise EvidenceStorageUnavailable("private evidence root is unavailable")
-        if self._root.is_symlink():
-            raise EvidenceStorageUnavailable("private evidence root must not be a symbolic link")
+        if self._staging.is_symlink():
+            raise EvidenceStorageUnavailable("private evidence staging must not be a symbolic link")
         self._staging.mkdir(mode=0o700, exist_ok=True)
         probe = self._staging / f".probe-{secrets.token_hex(12)}"
         try:
@@ -96,15 +130,12 @@ class LocalEvidenceStorage(EvidenceStorageInterface):
         finally:
             probe.unlink(missing_ok=True)
 
-    def _create_private_temporary_file(self) -> Path:
+    def _create_private_temporary_file(self) -> tuple[int, Path]:
         descriptor, raw_path = tempfile.mkstemp(
             prefix=".upload-",
             dir=self._staging,
         )
-        os.close(descriptor)
-        path = Path(raw_path)
-        path.unlink()
-        return path
+        return descriptor, Path(raw_path)
 
     def _new_storage_key(self) -> str:
         return f"objects/{secrets.token_urlsafe(32)}"
@@ -148,4 +179,7 @@ class UnavailableEvidenceStorage(EvidenceStorageInterface):
         return False
 
     def delete_if_present(self, storage_key: str) -> None:
+        raise EvidenceStorageUnavailable("private evidence storage is unavailable")
+
+    def list_storage_keys_older_than(self, older_than, limit: int) -> list[str]:
         raise EvidenceStorageUnavailable("private evidence storage is unavailable")

@@ -36,6 +36,12 @@ class RequestScope:
     generation: int
     account_id: int
 
+    def __post_init__(self) -> None:
+        if type(self.generation) is not int or self.generation < 0:
+            raise ValueError("generation must be a non-negative integer")
+        if type(self.account_id) is not int or self.account_id <= 0:
+            raise ValueError("account_id must be a positive integer")
+
 
 class CurrentUserConnector(Protocol):
     def current_user(self, *, access_token: str) -> object: ...
@@ -77,6 +83,17 @@ class AccessCoordinator:
         if type(account_id) is not int:
             return None
         return RequestScope(self._generation, account_id)
+
+    def bind_connector_for_scope(self, scope: RequestScope | None, connector: object) -> object | None:
+        """Bind an authenticated client to the current scope without exposing its credential."""
+
+        if not self.is_current_request_scope(scope):
+            return None
+        session = self.authentication.session
+        bind = getattr(connector, "for_access_token", None)
+        if session is None or not callable(bind):
+            return None
+        return bind(session.access_token)
 
     def is_current_request_scope(self, scope: RequestScope | None) -> bool:
         """Return whether an asynchronous response still belongs to this session."""

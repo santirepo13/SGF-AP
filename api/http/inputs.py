@@ -9,6 +9,7 @@ from enum import Enum
 import json
 from types import UnionType
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from uuid import UUID
 
 from fastapi import Request
 
@@ -211,6 +212,12 @@ def _convert_value(value: object, annotation: object, *, from_text: bool) -> obj
         if isinstance(value, str):
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         raise TypeError("expected an ISO 8601 date and time")
+    if annotation is UUID:
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str):
+            return UUID(value)
+        raise TypeError("expected a UUID")
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         if isinstance(value, annotation):
             return value

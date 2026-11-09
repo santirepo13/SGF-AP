@@ -44,6 +44,15 @@ class TicketRepository(RepositoryBase):
             mapper=ticket,
         )
 
+    def get_by_code_for_update(self, code: str):
+        return self.fetch_one(
+            f"SELECT {_COLUMNS}{_BASE} WHERE t.code = %s FOR UPDATE OF t",
+            (code,),
+            operation="tickets.get_by_code_for_update",
+            entity="ticket",
+            mapper=ticket,
+        )
+
     def list_by_filters(self, filters: TicketFilters | None = None):
         filters = filters or TicketFilters()
         clauses, params = [], []

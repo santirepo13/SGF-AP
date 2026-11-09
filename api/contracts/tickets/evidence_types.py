@@ -22,7 +22,8 @@ class EvidenceCreateInput:
     purpose: str | None = None
 
     def __post_init__(self) -> None:
-        ensure_aware(self.captured_at, "captured_at")
+        if self.captured_at is not None:
+            ensure_aware(self.captured_at, "captured_at")
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -270,9 +270,16 @@ def _load_evidence_storage_config(
             "La raíz privada de evidencias es obligatoria.",
         )
 
+    root = Path(root_value) if root_value else None
+    if root is not None and not root.is_absolute():
+        raise ApplicationError.invalid_value(
+            "EVIDENCE_STORAGE_ROOT",
+            "La raíz privada de evidencias debe ser una ruta absoluta.",
+        )
+
     return EvidenceStorageConfig(
         enabled=enabled == "true",
-        root=Path(root_value).resolve() if root_value else None,
+        root=root,
         max_report_photos=positive("EVIDENCE_MAX_REPORT_PHOTOS", 3),
         max_file_bytes=positive("EVIDENCE_MAX_FILE_BYTES", 10_000_000),
         max_image_pixels=positive("EVIDENCE_MAX_IMAGE_PIXELS", 40_000_000),

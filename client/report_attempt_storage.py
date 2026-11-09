@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
 from typing import Any, Protocol
+from uuid import UUID
 
 _PREFIX = "sgfap.citizen-report-attempt.v1"
 _VERSION = 1
@@ -198,7 +199,131 @@ def _validated_payload(value: Mapping[str, object], *, expected_request_key: str
     return json.loads(json.dumps(dict(value), ensure_ascii=False, allow_nan=False))
 
 
+@dataclass(frozen=True, slots=True)
+class StoredContributionAttempt:
+    account_id: int
+    request_key: str
+    payload: Mapping[str, object] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.account_id) is not int or self.account_id <= 0:
+            raise ValueError("account_id must be positive")
+        if type(self.request_key) is not str or not 1 <= len(self.request_key) <= 128:
+            raise ValueError("request_key is invalid")
+        _validated_contribution(self.payload, self.request_key)
+
+
+def _validated_contribution(value: Mapping[str, object], request_key: str) -> dict[str, object]:
+    required = {"request_key", "target_code", "address_id", "failure_type_id", "temporary_upload_ids"}
+    if not isinstance(value, Mapping) or set(value) != required or value.get("request_key") != request_key:
+        raise ValueError("contribution payload is invalid")
+    code = value["target_code"]
+    if type(code) is not str or len(code) != 24 or not code.startswith("SGF-") or any(c not in "0123456789ABCDEF" for c in code[4:]):
+        raise ValueError("target code is invalid")
+    for name in ("address_id", "failure_type_id"):
+        if type(value[name]) is not int or value[name] <= 0:
+            raise ValueError("contribution reference is invalid")
+    ids = value["temporary_upload_ids"]
+    if type(ids) is not list or not 1 <= len(ids) <= 3:
+        raise ValueError("contribution uploads are invalid")
+    if any(type(item) is not str for item in ids):
+        raise ValueError("contribution uploads are invalid")
+    try:
+        normalized = [str(UUID(item)) for item in ids]
+    except (ValueError, AttributeError) as error:
+        raise ValueError("contribution uploads are invalid") from error
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("contribution uploads are duplicated")
+    return dict(value)
+
+
+class ContributionAttemptStorage(Protocol):
+    async def load(self, account_id: int) -> StoredContributionAttempt | None: ...
+    async def save(self, value: StoredContributionAttempt) -> None: ...
+    async def clear(self, account_id: int, request_key: str | None = None) -> None: ...
+
+
+class SecureContributionAttemptStorage:
+    def __init__(self, backend: Any, *, prefix: str = "sgfap.citizen-contribution-attempt.v1") -> None:
+        self._backend = backend
+        self._prefix = prefix
+
+    def _key(self, account_id: int) -> str:
+        if type(account_id) is not int or account_id <= 0:
+            raise ValueError("account_id must be positive")
+        return f"{self._prefix}.{account_id}"
+
+    async def load(self, account_id: int) -> StoredContributionAttempt | None:
+        try:
+            raw = await self._backend.get(self._key(account_id))
+        except Exception as error:
+            raise ReportAttemptStorageUnavailable("No se pudo recuperar el aporte protegido.") from error
+        if raw is None:
+            return None
+        try:
+            value = json.loads(raw)
+            if not isinstance(value, dict) or set(value) != {"version", "account_id", "request_key", "payload"} or value["version"] != 1 or value["account_id"] != account_id:
+                raise ValueError("stored contribution is invalid")
+            return StoredContributionAttempt(account_id, value["request_key"], value["payload"])
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ReportAttemptStorageError("El aporte guardado no es válido.") from error
+
+    async def save(self, value: StoredContributionAttempt) -> None:
+        payload = _validated_contribution(value.payload, value.request_key)
+        raw = json.dumps({"version": 1, "account_id": value.account_id, "request_key": value.request_key, "payload": payload}, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        try:
+            await self._backend.set(self._key(value.account_id), raw)
+        except Exception as error:
+            raise ReportAttemptStorageUnavailable("No se pudo guardar el aporte protegido.") from error
+
+    async def clear(self, account_id: int, request_key: str | None = None) -> None:
+        try:
+            if request_key is not None:
+                saved = await self.load(account_id)
+                if saved is None or saved.request_key != request_key:
+                    return
+            await self._backend.remove(self._key(account_id))
+        except ReportAttemptStorageError:
+            raise
+        except Exception as error:
+            raise ReportAttemptStorageUnavailable("No se pudo eliminar el aporte protegido.") from error
+
+
+class UnavailableContributionAttemptStorage:
+    async def load(self, account_id: int) -> StoredContributionAttempt | None:
+        raise ReportAttemptStorageUnavailable("El almacenamiento protegido no está disponible.")
+
+    async def save(self, value: StoredContributionAttempt) -> None:
+        raise ReportAttemptStorageUnavailable("El almacenamiento protegido no está disponible.")
+
+    async def clear(self, account_id: int, request_key: str | None = None) -> None:
+        raise ReportAttemptStorageUnavailable("El almacenamiento protegido no está disponible.")
+
+
+class MemoryContributionAttemptStorage:
+    """Test double; production composition uses Flet SecureStorage."""
+
+    def __init__(self) -> None:
+        self._values: dict[int, StoredContributionAttempt] = {}
+
+    async def load(self, account_id: int) -> StoredContributionAttempt | None:
+        return self._values.get(account_id)
+
+    async def save(self, value: StoredContributionAttempt) -> None:
+        self._values[value.account_id] = value
+
+    async def clear(self, account_id: int, request_key: str | None = None) -> None:
+        value = self._values.get(account_id)
+        if value is not None and (request_key is None or value.request_key == request_key):
+            del self._values[account_id]
+
+
 __all__ = [
+    "ContributionAttemptStorage",
+    "MemoryContributionAttemptStorage",
+    "SecureContributionAttemptStorage",
+    "StoredContributionAttempt",
+    "UnavailableContributionAttemptStorage",
     "MemoryReportAttemptStorage",
     "ReportAttemptStorage",
     "ReportAttemptStorageError",

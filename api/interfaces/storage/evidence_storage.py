@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import BinaryIO, Protocol
 
 
@@ -41,3 +42,4 @@ class EvidenceStorageInterface(Protocol):
     def exists(self, storage_key: str) -> bool: ...
 
     def delete_if_present(self, storage_key: str) -> None: ...
+    def list_storage_keys_older_than(self, older_than: datetime, limit: int) -> list[str]: ...

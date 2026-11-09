@@ -26,6 +26,7 @@ class EvidenceUploadInput:
 @dataclass(frozen=True, slots=True)
 class EvidenceUploadOutput:
     upload_id: UUID
+    upload_key: str
     state: Literal["ready"]
     size_bytes: int
     media_type: str
