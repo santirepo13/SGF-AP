@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
-from api.config import APIConfig, PostgresConnectionProvider
+from api.config import APIConfig, EvidenceStorageConfig, PostgresConnectionProvider
 from api.contracts import ActorContext
 from api.http.context import RequestIdentityProvider, bind_request_actor
 from api.interfaces.services import (
@@ -18,6 +18,7 @@ from api.interfaces.services import (
     CatalogServiceInterface,
     CrewServiceInterface,
     EvidenceServiceInterface,
+    EvidenceUploadServiceInterface,
     HistoryServiceInterface,
     TicketServiceInterface,
     UserServiceInterface,
@@ -60,7 +61,9 @@ from api.repositories import (
     TicketRepository,
     UserRepository,
 )
-from api.storage import LocalEvidenceStorage, UnavailableEvidenceStorage
+from api.storage import EvidenceStorageUnavailable, LocalEvidenceStorage, UnavailableEvidenceStorage
+from api.interfaces.storage import EvidenceStorageInterface
+from api.services.tickets.image_validation import ImageValidator
 from api.interfaces.security import AccessTokenProviderInterface
 from api.notifications import PasswordRecoveryNotifier
 from api.security import (
@@ -225,6 +228,7 @@ class ApplicationDependencies:
         password_recovery_code_ttl_seconds: int = 600,
         citizen_description_max_length: int = 4_000,
         evidence_storage: EvidenceStorageInterface | None = None,
+        evidence_config: EvidenceStorageConfig | None = None,
     ) -> None:
         if type(citizen_description_max_length) is not int or citizen_description_max_length <= 0:
             raise ValueError("citizen_description_max_length must be a positive integer")
@@ -239,6 +243,7 @@ class ApplicationDependencies:
         self.password_recovery_code_ttl_seconds = password_recovery_code_ttl_seconds
         self.citizen_description_max_length = citizen_description_max_length
         self.evidence_storage = evidence_storage or UnavailableEvidenceStorage()
+        self.evidence_config = evidence_config or EvidenceStorageConfig()
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
@@ -282,12 +287,14 @@ class ApplicationDependencies:
                 self.password_recovery_code_ttl_seconds,
                 self.citizen_description_max_length,
                 self.evidence_storage,
+                self.evidence_config,
             )
 
 
 def prepare_application_dependencies(
     connection_provider: PostgresConnectionProvider,
     *,
+    api_config: APIConfig | None = None,
     identity_provider: IdentityProvider | None = None,
     permission_checker: PermissionChecker | None = None,
     correlation_ids: CorrelationIdGenerator | None = None,
@@ -300,7 +307,8 @@ def prepare_application_dependencies(
 ) -> ApplicationDependencies:
     """Create application-shared collaborators and request-scoped service factories."""
 
-    evidence_storage = _build_evidence_storage(api_config.evidence_storage)
+    evidence_config = api_config.evidence_storage if api_config is not None else EvidenceStorageConfig()
+    evidence_storage = _build_evidence_storage(evidence_config)
     trusted_identity_provider = identity_provider or UnauthenticatedIdentityProvider()
     request_identity_provider = RequestIdentityProvider()
     correlation_generator = correlation_ids or UuidCorrelationIdGenerator()
@@ -327,6 +335,7 @@ def prepare_application_dependencies(
         password_recovery_code_ttl_seconds,
         citizen_description_max_length,
         evidence_storage,
+        evidence_config,
     )
 
 
@@ -461,13 +470,15 @@ def _build_operation_dependencies(
     password_recovery_code_ttl_seconds: int = 600,
     citizen_description_max_length: int = 4_000,
     evidence_storage: EvidenceStorageInterface | None = None,
+    evidence_config: EvidenceStorageConfig | None = None,
 ) -> OperationDependencies:
     effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
+    evidence_config = evidence_config or EvidenceStorageConfig()
     evidence_attachment = EvidenceAttachment(
         uploads=repositories.evidence_uploads,
         evidences=repositories.evidences,
         storage=evidence_storage or UnavailableEvidenceStorage(),
-        max_report_photos=3,
+        max_report_photos=evidence_config.max_report_photos,
     )
     return OperationDependencies(
         pipeline=pipeline,
@@ -551,7 +562,6 @@ def _build_operation_dependencies(
             tickets=repositories.tickets,
             users=repositories.users,
             storage=evidence_storage or UnavailableEvidenceStorage(),
-            contributions=repositories.citizen_contributions,
             roles=repositories.roles,
             transaction=transaction,
             authorizer=role_operation_authorizer,
@@ -562,9 +572,10 @@ def _build_operation_dependencies(
             roles=repositories.roles,
             storage=evidence_storage or UnavailableEvidenceStorage(),
             image_validator=ImageValidator(
-                max_pixels=...,
-                allowed_media_types=...,
+                max_pixels=evidence_config.max_image_pixels,
+                allowed_media_types=evidence_config.allowed_media_types,
             ),
+            config=evidence_config,
             transaction=transaction,
             authorizer=role_operation_authorizer,
         ),
@@ -583,7 +594,7 @@ def _build_evidence_storage(config: EvidenceStorageConfig) -> EvidenceStorageInt
         return UnavailableEvidenceStorage()
     try:
         return LocalEvidenceStorage(config.root)
-    except EvidenceStorageUnavailable:
+    except (EvidenceStorageUnavailable, OSError):
         logger.warning("evidence_storage_unavailable")
         return UnavailableEvidenceStorage()
 

@@ -6,22 +6,26 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.concurrency import run_in_threadpool
 
-from api.contracts import EvidenceCreateInput, EvidenceOutput
-from api.dependencies import get_evidence_service
+from api.contracts import EvidenceCreateInput, EvidenceOutput, EvidenceUploadLookupInput
+from api.dependencies import get_evidence_service, get_evidence_upload_service
 from api.http import (
     HttpOperation,
     HttpOperationAdapter,
+    build_contract,
     get_http_adapter,
     get_request_correlation_id,
     read_json_contract,
 )
-from api.interfaces.services import EvidenceServiceInterface
+from api.http.multipart import read_single_evidence_multipart
+from api.interfaces.services import EvidenceServiceInterface, EvidenceUploadServiceInterface
 from api.routes.users._openapi import contract_schema, response_envelopes
 
 router = APIRouter(prefix="/evidences", tags=["Evidence"])
 
 EvidenceServiceDependency = Annotated[EvidenceServiceInterface, Depends(get_evidence_service)]
+EvidenceUploadServiceDependency = Annotated[EvidenceUploadServiceInterface, Depends(get_evidence_upload_service)]
 HttpAdapterDependency = Annotated[HttpOperationAdapter, Depends(get_http_adapter)]
 CorrelationIdDependency = Annotated[str, Depends(get_request_correlation_id)]
 
@@ -29,6 +33,11 @@ _GET_BY_ID = HttpOperation("EvidenceService", "get_by_id")
 _LIST_BY_TICKET = HttpOperation("EvidenceService", "list_by_ticket")
 _LIST_BY_TICKET_AND_UPLOADER = HttpOperation("EvidenceService", "list_by_ticket_and_uploader")
 _CREATE_METADATA = HttpOperation("EvidenceService", "create_metadata", success_status=201)
+_UPLOAD = HttpOperation("EvidenceUploadService", "upload", no_store=True)
+_LIST_UPLOADS = HttpOperation("EvidenceUploadService", "list_own", no_store=True)
+_DELETE_UPLOAD = HttpOperation("EvidenceUploadService", "delete_own", no_store=True)
+_LIST_CONTRIBUTION = HttpOperation("EvidenceService", "list_citizen_contribution_evidence", no_store=True)
+_OPEN_CONTENT = HttpOperation("EvidenceService", "open_citizen_content", no_store=True)
 
 _EVIDENCE_OUTPUT_SCHEMA = contract_schema(EvidenceOutput)
 _EVIDENCE_CREATE_SCHEMA = contract_schema(EvidenceCreateInput)
@@ -74,6 +83,64 @@ def list_by_ticket(
         ticket_id,
         uploaded_by,
     )
+
+
+@router.post("/uploads", status_code=200)
+async def upload_evidence(
+    request: Request,
+    evidence_upload_service: EvidenceUploadServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+):
+    data = await read_single_evidence_multipart(request, correlation_id=correlation_id)
+    try:
+        return await run_in_threadpool(adapter.execute, request, _UPLOAD, evidence_upload_service, data)
+    finally:
+        data.content.close()
+
+
+@router.get("/uploads", status_code=200)
+def list_uploads(
+    request: Request,
+    evidence_upload_service: EvidenceUploadServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+    request_key: str,
+):
+    data = build_contract(EvidenceUploadLookupInput, query_values={"request_key": request_key}, correlation_id=correlation_id)
+    return adapter.execute(request, _LIST_UPLOADS, evidence_upload_service, data)
+
+
+@router.delete("/uploads/{upload_id}", status_code=200)
+def delete_upload(
+    upload_id: str,
+    request: Request,
+    evidence_upload_service: EvidenceUploadServiceDependency,
+    adapter: HttpAdapterDependency,
+):
+    return adapter.execute(request, _DELETE_UPLOAD, evidence_upload_service, upload_id)
+
+
+@router.get("/citizen/contributions/{contribution_id}", status_code=200)
+def list_contribution_evidence(
+    contribution_id: str,
+    request: Request,
+    evidence_service: EvidenceServiceDependency,
+    adapter: HttpAdapterDependency,
+):
+    return adapter.execute(request, _LIST_CONTRIBUTION, evidence_service, contribution_id)
+
+
+@router.get("/{evidence_id}/content", status_code=200)
+def open_evidence_content(
+    evidence_id: int,
+    request: Request,
+    evidence_service: EvidenceServiceDependency,
+    adapter: HttpAdapterDependency,
+):
+    response = adapter.execute_binary(request, _OPEN_CONTENT, evidence_service, evidence_id)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @router.get(

@@ -85,11 +85,36 @@ def evidence(row):
 
 
 def evidence_upload(row):
-    return EvidenceUpload(...)
+    return EvidenceUpload(
+        id=_v(row, "id"),
+        actor_user_id=_v(row, "actor_user_id"),
+        request_key=_v(row, "request_key"),
+        upload_key=_v(row, "upload_key"),
+        purpose=_v(row, "purpose"),
+        state=_v(row, "state"),
+        storage_key=_v(row, "storage_key"),
+        content_sha256=_v(row, "content_sha256"),
+        size_bytes=_v(row, "size_bytes"),
+        media_type=_v(row, "media_type"),
+        captured_at=_v(row, "captured_at"),
+        capture_source=_v(row, "capture_source"),
+        received_at=_v(row, "received_at"),
+        expires_at=_v(row, "expires_at"),
+        lease_expires_at=_v(row, "lease_expires_at"),
+        evidence_id=_v(row, "evidence_id"),
+        delete_requested_at=_v(row, "delete_requested_at"),
+        delete_attempts=_v(row, "delete_attempts"),
+    )
 
 
 def citizen_contribution(row):
-    return CitizenContribution(...)
+    return CitizenContribution(
+        id=_v(row, "id"),
+        ticket_id=_v(row, "ticket_id"),
+        actor_user_id=_v(row, "actor_user_id"),
+        request_key=_v(row, "request_key"),
+        created_at=_v(row, "created_at"),
+    )
 def history_event(row): return HistoryEvent(_v(row, "id"), _v(row, "ticket_id"), _v(row, "user_id"), _v(row, "action_id"), _v(row, "event_time"))
 
 

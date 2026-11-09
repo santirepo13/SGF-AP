@@ -5,8 +5,9 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
-from pathlib import Path
+from io import BytesIO
+import re
+import secrets
 import json
 import socket
 from typing import Any, BinaryIO
@@ -87,6 +88,20 @@ class RegistrationTransport:
         self._config = config
         self._opener = opener or build_opener(_NoRedirectHandler())
         self._access_token_supplier = access_token_supplier
+
+    def for_access_token(self, access_token: str) -> RegistrationTransport:
+        if (
+            type(access_token) is not str
+            or not access_token
+            or "\r" in access_token
+            or "\n" in access_token
+        ):
+            raise ValueError("access_token must be a valid non-empty string")
+        return RegistrationTransport(
+            self._config,
+            opener=self._opener,
+            access_token_supplier=lambda: access_token,
+        )
 
     def register_citizen(
         self,
@@ -185,11 +200,63 @@ class RegistrationTransport:
         requires_identity: bool,
         progress: Callable[[int, int], None] | None = None,
     ) -> ConnectorResponse:
-        # Build one bounded multipart body as a streaming iterable.
-        # Preserve Basic + User-Access-Token headers.
-        # Reject redirects; do not log image data, metadata, or credentials.
-        # Count transmitted file bytes for progress callbacks.
-        ...
+        if type(path) is not str or not path.startswith("/") or "\r" in path or "\n" in path:
+            raise ValueError("path must be an absolute API path")
+        if not isinstance(file, MultipartFile) or type(file.size_bytes) is not int or not 0 < file.size_bytes <= 10_000_000:
+            raise ValueError("file size is invalid")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", file.field_name):
+            raise ValueError("file field name is invalid")
+        boundary = "sgfap-" + secrets.token_hex(24)
+        parts = []
+        for name, value in fields.items():
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]+", name) or not isinstance(value, str):
+                raise ValueError("multipart fields must have valid text names and values")
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode("ascii") + value.encode("utf-8") + b"\r\n")
+        media_type = file.media_type if file.media_type in {"image/jpeg", "image/png", "image/webp"} else "application/octet-stream"
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{file.field_name}"; filename="evidence"\r\nContent-Type: {media_type}\r\n\r\n'.encode("ascii"))
+        prefix = b"".join(parts)
+        suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
+        if len(prefix) + len(suffix) > 65_536:
+            raise ValueError("multipart envelope exceeds limit")
+
+        def body():
+            yield prefix
+            sent = 0
+            with file.stream_factory() as stream:
+                while sent < file.size_bytes:
+                    chunk = stream.read(min(256 * 1024, file.size_bytes - sent))
+                    if not isinstance(chunk, bytes) or not chunk:
+                        raise ValueError("file ended before its declared size")
+                    sent += len(chunk)
+                    yield chunk
+                    if progress is not None:
+                        progress(sent, file.size_bytes)
+                if stream.read(1):
+                    raise ValueError("file exceeds its declared size")
+            yield suffix
+
+        headers = {
+            "Accept": "application/json", "Authorization": self._basic_authorization(),
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(prefix) + file.size_bytes + len(suffix)),
+        }
+        if requires_identity:
+            headers["User-Access-Token"] = self._supplied_access_token()
+        content = body()
+        request = Request(f"{self._config.base_url}{path}", data=content, headers=headers, method="POST")
+        try:
+            try:
+                with self._opener.open(request, timeout=_TIMEOUT_SECONDS) as response:
+                    return _decode_response(response.status, response.headers, response.read(65_537))
+            except HTTPError as error:
+                with error:
+                    return _decode_response(error.code, error.headers, error.read(65_537))
+            except (socket.timeout, TimeoutError) as error:
+                raise ConnectorTimeoutError("No se recibió una respuesta; el resultado remoto puede ser desconocido.", request_sent=None) from error
+            except (URLError, OSError) as error:
+                raise ConnectorTransportError("La conexión fue interrumpida; el resultado remoto puede ser desconocido.", request_sent=None) from error
+        finally:
+            content.close()
 
     def get_binary(
         self,
@@ -198,10 +265,42 @@ class RegistrationTransport:
         requires_identity: bool,
         maximum_bytes: int,
     ) -> BinaryConnectorResponse | ConnectorResponse:
-        # Validate image Content-Type and Content-Length before exposing bytes.
-        # JSON error envelopes remain ConnectorResponse.
-        # Never decode a server error as a photograph.
-        ...
+        if type(path) is not str or not path.startswith("/") or "\r" in path or "\n" in path:
+            raise ValueError("path must be an absolute API path")
+        if type(maximum_bytes) is not int or maximum_bytes <= 0:
+            raise ValueError("maximum_bytes must be positive")
+        headers = {"Accept": "image/jpeg, image/png, image/webp, application/json", "Authorization": self._basic_authorization()}
+        if requires_identity:
+            headers["User-Access-Token"] = self._supplied_access_token()
+        request = Request(f"{self._config.base_url}{path}", headers=headers, method="GET")
+        try:
+            with self._opener.open(request, timeout=_TIMEOUT_SECONDS) as response:
+                if response.status != 200:
+                    return _decode_response(response.status, response.headers, response.read(65_537))
+                media_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                if media_type == "application/json":
+                    return _decode_response(response.status, response.headers, response.read(65_537))
+                length = response.headers.get("Content-Length")
+                if media_type not in {"image/jpeg", "image/png", "image/webp"} or not length or not length.isascii() or not length.isdigit():
+                    raise ConnectorResponseError("El contenido de la evidencia no es válido.", status_code=response.status)
+                size = int(length)
+                if not 0 < size <= maximum_bytes:
+                    raise ConnectorResponseError("La evidencia supera el tamaño permitido.", status_code=response.status)
+                content = response.read(size + 1)
+                if len(content) != size:
+                    raise ConnectorResponseError("La evidencia recibida está incompleta.", status_code=response.status)
+                return BinaryConnectorResponse(response.status, _safe_headers(response.headers), BytesIO(content))
+        except HTTPError as error:
+            with error:
+                return _decode_response(error.code, error.headers, error.read(65_537))
+        except (socket.timeout, TimeoutError) as error:
+            raise ConnectorTimeoutError("No se recibió la evidencia.", request_sent=None) from error
+        except (URLError, OSError) as error:
+            raise ConnectorTransportError("No fue posible obtener la evidencia.", request_sent=None) from error
+
+    def delete_json(self, path: str, *, requires_identity: bool = False) -> ConnectorResponse:
+        access_token = self._supplied_access_token() if requires_identity else None
+        return self._request("DELETE", path, access_token=access_token)
 
     def _supplied_access_token(self) -> str:
         access_token = self._access_token_supplier() if self._access_token_supplier is not None else None
@@ -302,10 +401,12 @@ def _safe_headers(headers: Any) -> dict[str, str]:
 
 __all__ = [
     "ApiTransport",
+    "BinaryConnectorResponse",
     "ConnectorError",
     "ConnectorResponse",
     "ConnectorResponseError",
     "ConnectorTimeoutError",
     "ConnectorTransportError",
+    "MultipartFile",
     "RegistrationTransport",
 ]

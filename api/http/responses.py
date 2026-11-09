@@ -6,6 +6,7 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from fastapi.responses import JSONResponse
 
@@ -52,6 +53,8 @@ def to_json_value(value: Any) -> Any:
         return to_json_value(value.value)
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: to_json_value(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, (list, tuple)):

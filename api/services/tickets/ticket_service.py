@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import secrets
+from uuid import UUID
 
 from api.contracts import (
     CitizenAttemptLookupInput,
@@ -34,6 +36,7 @@ from api.interfaces.repositories import (
     ActionRepositoryInterface,
     AddressRepositoryInterface,
     CrewRepositoryInterface,
+    CitizenContributionRepositoryInterface,
     EvidenceRepositoryInterface,
     FailureTypeRepositoryInterface,
     HistoryEventRepositoryInterface,
@@ -46,6 +49,9 @@ from api.interfaces.repositories import (
 from api.security import CitizenAuthorizer, role_operation_authorizer
 from api.services.operation_attempts import (
     citizen_registration_digest,
+    citizen_contribution_digest,
+    contribution_result_from_payload,
+    contribution_result_payload,
     registration_result_from_payload,
     registration_result_payload,
 )
@@ -56,7 +62,8 @@ from .citizen_ticket_validation import (
     validate_citizen_match,
     validate_citizen_ticket_create,
 )
-from .ticket_matcher import TicketMatcher
+from .evidence_attachment import EvidenceAttachment
+from .ticket_matcher import TicketMatcher, _OPEN_STATUS_NAMES
 
 
 class TicketService(ServiceBase):
@@ -337,21 +344,79 @@ class TicketService(ServiceBase):
         context,
         data: CitizenContributionInput,
     ) -> OperationResult[CitizenContributionOutput]:
-        # Lock current Citizen; recover existing ledger result first.
-        # Validate request digest, target code, submitted address/type, 1..3 IDs.
-        # Acquire address/failure guard, lock target ticket, require open exact match.
-        # Insert citizen_contributions without changing ticket state/history/ownership.
-        # Attach ready temporary report uploads transactionally.
-        # Link resulting evidences to contribution, persist generic ledger, commit once.
-        ...
+        def work():
+            if not isinstance(data, CitizenContributionInput):
+                raise ApplicationError.invalid_value("data", "El aporte no es válido.", correlation_id=context.correlation_id)
+            validate_citizen_attempt_lookup(CitizenAttemptLookupInput(data.request_key), correlation_id=context.correlation_id)
+            validate_citizen_match(CitizenMatchInput(data.address_id, data.failure_type_id), correlation_id=context.correlation_id)
+            if type(data.target_code) is not str or re.fullmatch(r"SGF-[0-9A-F]{20}", data.target_code) is None:
+                raise ApplicationError.invalid_value("target_code", "El código no es válido.", correlation_id=context.correlation_id)
+            if not isinstance(data.temporary_upload_ids, tuple) or not 1 <= len(data.temporary_upload_ids) <= 3 or any(not isinstance(value, UUID) for value in data.temporary_upload_ids) or len(set(data.temporary_upload_ids)) != len(data.temporary_upload_ids):
+                raise ApplicationError.invalid_value("temporary_upload_ids", "Las fotografías no son válidas.", correlation_id=context.correlation_id)
+            user = self._require_current_citizen(context, lock=True)
+            attempts = self._citizen_attempts()
+            digest = citizen_contribution_digest(data)
+            attempt = attempts.get(actor_user_id=user.id, operation=self._CONTRIBUTE_CITIZEN_EVIDENCE_OPERATION, request_key=data.request_key)
+            if attempt is not None:
+                if attempt.request_digest != digest:
+                    raise ApplicationError.operation_key_reused(correlation_id=context.correlation_id)
+                return self._contribution_result_from_attempt(attempt.result_payload, data.request_key, context)
+            if self.contributions is None:
+                raise RuntimeError("contribution repository is required")
+            self._require_citizen_references(context, data.address_id, data.failure_type_id)
+            matcher = self._citizen_matcher()
+            matcher.acquire_address_guard(address_id=data.address_id, failure_type_id=data.failure_type_id)
+            ticket = self.tickets.get_by_code_for_update(data.target_code)
+            if ticket is None or ticket.address_id != data.address_id or ticket.failure_type_id != data.failure_type_id:
+                raise self._missing("ticket", context)
+            status = self.statuses.get_by_id(ticket.status_id)
+            if status is None or status.name.value not in _OPEN_STATUS_NAMES:
+                raise ApplicationError.invalid_ticket_state(correlation_id=context.correlation_id)
+            prepared = self._attachment().prepare_attachment(context, request_key=data.request_key, upload_ids=data.temporary_upload_ids)
+            contribution = self.contributions.create(ticket_id=ticket.id, actor_user_id=user.id, request_key=data.request_key)
+            attached = self._attachment().attach_in_transaction(
+                context, ticket_id=ticket.id, request_key=data.request_key, upload_ids=prepared.upload_ids,
+            )
+            for evidence_id in attached.evidence_ids:
+                self.contributions.create_evidence_link(contribution_id=contribution.id, evidence_id=evidence_id)
+            result = CitizenContributionOutput(
+                request_key=data.request_key, outcome="contributed", contribution_id=contribution.id,
+                ticket_code=ticket.code, created_at=contribution.created_at,
+                evidence_count=len(attached.evidence_ids), evidence_ids=attached.evidence_ids,
+            )
+            attempts.create(actor_user_id=user.id, operation=self._CONTRIBUTE_CITIZEN_EVIDENCE_OPERATION,
+                            request_key=data.request_key, request_digest=digest, result_payload=contribution_result_payload(result))
+            return result
+
+        return self._run(context, self._CONTRIBUTE_CITIZEN_EVIDENCE_OPERATION, work, write=True, actor_required=True)
 
     def get_citizen_contribution_attempt(
         self,
         context,
         data: CitizenAttemptLookupInput,
     ) -> OperationResult[CitizenContributionAttemptOutput]:
-        # Query only current actor + contribution operation namespace.
-        ...
+        def work():
+            validate_citizen_attempt_lookup(data, correlation_id=context.correlation_id)
+            user = self._require_current_citizen(context, lock=False)
+            attempt = self._citizen_attempts().get(
+                actor_user_id=user.id, operation=self._CONTRIBUTE_CITIZEN_EVIDENCE_OPERATION, request_key=data.request_key,
+            )
+            if attempt is None:
+                return CitizenContributionAttemptOutput(request_key=data.request_key, state="not_found", result=None)
+            result = self._contribution_result_from_attempt(attempt.result_payload, data.request_key, context)
+            return CitizenContributionAttemptOutput(request_key=data.request_key, state="committed", result=result)
+
+        return self._run(context, self._GET_CITIZEN_CONTRIBUTION_ATTEMPT_OPERATION, work, actor_required=True)
+
+    @staticmethod
+    def _contribution_result_from_attempt(payload, request_key, context):
+        try:
+            result = contribution_result_from_payload(payload)
+            if result.request_key != request_key:
+                raise ValueError("stored request key does not match")
+            return result
+        except (TypeError, ValueError) as error:
+            raise ApplicationError.persistence_failure(correlation_id=context.correlation_id, cause=error) from error
 
     def get_by_id(self, context, ticket_id: int) -> OperationResult[TicketOutput]:
         return self._run(
@@ -614,6 +679,11 @@ class TicketService(ServiceBase):
             raise RuntimeError("history-event repository is required for citizen ticket registration")
         return attempts, matcher, self.events
 
+    def _attachment(self) -> EvidenceAttachment:
+        if self.evidence_attachment is None:
+            return EvidenceAttachment()
+        return self.evidence_attachment
+
     def _citizen_attempts(self) -> OperationAttemptRepositoryInterface:
         if self.operation_attempts is None:
             raise RuntimeError("operation-attempt repository is required for citizen ticket operations")
@@ -663,5 +733,9 @@ class TicketService(ServiceBase):
         except (TypeError, ValueError) as error:
             raise ApplicationError.persistence_failure(
                 correlation_id=context.correlation_id,
-                cause=error,
-            ) from error
+                 cause=error,
+             ) from error
+
+
+def _upload_ids(value):
+    return () if value is UNSET else value

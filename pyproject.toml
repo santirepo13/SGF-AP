@@ -4,9 +4,10 @@ version = "0.1.0"
 description = "SGF-AP citizen registration and access client"
 requires-python = ">=3.13,<3.15"
 dependencies = [
-    "flet>=0.80",
-    "flet-secure-storage",
-    "flet-camera>=0.80,<0.81",
+    "flet==0.81.0",
+    "flet-secure-storage==0.81.0",
+    "flet-camera==0.81.0",
+    "flet-permission-handler==0.81.0",
     "python-dotenv",
 ]
 

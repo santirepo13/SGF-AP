@@ -8,12 +8,17 @@ from typing import Any
 
 from .access_continuity import AccessCoordinator, AccessStatus
 from .citizen_connector import HttpCitizenReportConnector
-from .citizen_report import CitizenReportController
 from .citizen_evidence import CitizenEvidenceController
 from .citizen_evidence_view import CitizenEvidenceView
+from .citizen_report import CitizenReportController
 from .citizen_report_view import CitizenReportView
-from .device_photos import FletDevicePhotoPicker
-from .report_attempt_storage import SecureReportAttemptStorage, UnavailableReportAttemptStorage
+from .device_photos import DevicePhotoError, FletDevicePhotoPicker
+from .report_attempt_storage import (
+    SecureContributionAttemptStorage,
+    SecureReportAttemptStorage,
+    UnavailableContributionAttemptStorage,
+    UnavailableReportAttemptStorage,
+)
 from .access_storage import SecureAccessStorage, UnavailableAccessStorage
 from .authentication import AuthenticationState
 from .design_tokens import COLORS
@@ -59,6 +64,159 @@ class _UnavailableConnector:
     def get_json(self, *args: object, **kwargs: object) -> object:
         raise RuntimeError("citizen report service configuration is unavailable") from self.reason
 
+    def post_multipart(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("citizen evidence service configuration is unavailable") from self.reason
+
+    def delete_json(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("citizen evidence service configuration is unavailable") from self.reason
+
+    def get_binary(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("citizen evidence service configuration is unavailable") from self.reason
+
+    def for_access_token(self, access_token: str) -> _UnavailableConnector:
+        return self
+
+
+class _FletCameraCapture:
+    """Own the short-lived native camera preview used by the evidence picker."""
+
+    MAX_FILE_BYTES = 10_000_000
+
+    def __init__(self, page: Any, ft: Any) -> None:
+        self._page = page
+        self._ft = ft
+        self._dialog: Any | None = None
+        self._result: asyncio.Future[bytes | None] | None = None
+
+    async def capture(self) -> bytes | None:
+        if self._result is not None and not self._result.done():
+            raise DevicePhotoError("Ya hay una cámara abierta.")
+        try:
+            import flet_camera as fc
+            import flet_permission_handler as fph
+        except ModuleNotFoundError as error:
+            raise DevicePhotoError("La cámara no está instalada en esta aplicación.") from error
+        try:
+            permission = fph.PermissionHandler()
+            status = await permission.request(fph.Permission.CAMERA)
+        except BaseException as error:
+            raise DevicePhotoError("No fue posible solicitar el permiso de cámara.") from error
+        if status is not fph.PermissionStatus.GRANTED:
+            raise DevicePhotoError("Se necesita el permiso de cámara para tomar una fotografía.")
+
+        loop = asyncio.get_running_loop()
+        result: asyncio.Future[bytes | None] = loop.create_future()
+        self._result = result
+        status = self._ft.Text("Preparando cámara…", size=12)
+        take = self._ft.Button("Tomar fotografía", disabled=True)
+        camera = fc.Camera(preview_enabled=True, expand=True)
+        dialog: Any | None = None
+
+        def dismiss() -> None:
+            if dialog is not None and getattr(dialog, "open", False):
+                dialog.open = False
+                dialog.update()
+
+        def on_dismiss(event: Any) -> None:
+            if not result.done():
+                result.set_result(None)
+
+        async def take_picture(event: Any) -> None:
+            take.disabled = True
+            status.value = "Tomando fotografía…"
+            self._page.update()
+            try:
+                content = await camera.take_picture()
+            except BaseException:
+                status.value = "No fue posible tomar la fotografía. Inténtalo nuevamente."
+                take.disabled = False
+                self._page.update()
+                return
+            if not isinstance(content, bytes) or not content:
+                status.value = "La cámara no devolvió una fotografía válida."
+                take.disabled = False
+                self._page.update()
+                return
+            if len(content) > self.MAX_FILE_BYTES:
+                status.value = "La fotografía supera el máximo de 10 MB. Inténtalo nuevamente."
+                take.disabled = False
+                self._page.update()
+                return
+            result.set_result(content)
+            dismiss()
+
+        def cancel(event: Any) -> None:
+            dismiss()
+
+        take.on_click = take_picture
+        dialog = self._ft.AlertDialog(
+            modal=True,
+            title=self._ft.Text("Tomar fotografía"),
+            content=self._ft.Container(
+                width=320,
+                height=330,
+                content=self._ft.Column(
+                    controls=[
+                        self._ft.Container(height=270, bgcolor="#000000", content=camera),
+                        status,
+                    ],
+                    spacing=8,
+                ),
+            ),
+            actions=[
+                self._ft.TextButton("Cancelar", on_click=cancel),
+                take,
+            ],
+            on_dismiss=on_dismiss,
+        )
+        self._dialog = dialog
+        self._page.show_dialog(dialog)
+        try:
+            cameras = await camera.get_available_cameras()
+            if not cameras:
+                status.value = "No hay una cámara disponible en este dispositivo."
+            else:
+                description = next(
+                    (
+                        item
+                        for item in cameras
+                        if item.lens_direction is fc.CameraLensDirection.BACK
+                    ),
+                    cameras[0],
+                )
+                await camera.initialize(
+                    description=description,
+                    resolution_preset=fc.ResolutionPreset.LOW,
+                    enable_audio=False,
+                    image_format_group=fc.ImageFormatGroup.JPEG,
+                )
+                take.disabled = False
+                status.value = "Enfoca la falla y toma la fotografía."
+            self._page.update()
+            return await result
+        except BaseException:
+            status.value = "No fue posible iniciar la cámara. Revisa el permiso e inténtalo nuevamente."
+            self._page.update()
+            if not result.done():
+                result.set_result(None)
+            dismiss()
+            return None
+        finally:
+            if self._dialog is dialog:
+                self._dialog = None
+            if self._result is result:
+                self._result = None
+
+    async def dispose(self) -> None:
+        if self._result is not None and not self._result.done():
+            self._result.set_result(None)
+        dialog = self._dialog
+        if dialog is not None and getattr(dialog, "open", False):
+            dialog.open = False
+            dialog.update()
+        self._dialog = None
+        self._result = None
+
 
 def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector] | None = None) -> None:
     """Build responsive login, registration, recovery, and role landing views."""
@@ -82,16 +240,24 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         configuration_message = _configuration_message(error)
 
     access = AccessCoordinator(authenticated, _build_access_storage(), connector)
+    citizen_connector = HttpCitizenReportConnector(connector)
     citizen_report = CitizenReportController(
-        HttpCitizenReportConnector(connector),
+        citizen_connector,
         _build_report_attempt_storage(),
+        contribution_storage=_build_contribution_attempt_storage(),
+        access_scope=access,
     )
+    camera_capture = _FletCameraCapture(page, ft)
+    photo_picker = FletDevicePhotoPicker(page, camera_capture=camera_capture.capture)
     citizen_evidence = CitizenEvidenceController(
-        connector=HttpCitizenReportConnector(connector),
+        connector=citizen_connector,
         request_key_provider=citizen_report,
         access_scope=access,
     )
+    citizen_report.set_evidence_submission_guard(citizen_evidence.can_submit_report)
+    citizen_report.set_evidence_attachment_callback(citizen_evidence.mark_attached)
     citizen_report_view: CitizenReportView | None = None
+    citizen_evidence_view: CitizenEvidenceView | None = None
     consultation_code: str | None = None
     restored_report_accounts: set[int] = set()
     login: LoginController | None = None
@@ -566,6 +732,8 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             return False
         if not await access.handle_protected_error(scope, response):
             return False
+        await camera_capture.dispose()
+        citizen_evidence.clear_account_private_state()
         citizen_report.reset()
         restored_report_accounts.clear()
         navigation.revoke_access()
@@ -592,6 +760,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             if account_id is None:
                 return
             await citizen_report.start_new_report(account_id)
+            citizen_evidence.clear_account_private_state()
             navigation.open(ScreenName.CITIZEN_REPORT)
             render_current()
 
@@ -618,11 +787,22 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
 
     async def _restore_citizen_report_attempt(account_id: int) -> None:
         await citizen_report.restore_pending(account_id)
+        if citizen_evidence_view is not None and citizen_report.evidence_request_key() is not None:
+            await citizen_evidence_view.restore()
         if navigation.active_screen is ScreenName.CITIZEN_REPORT:
             render_current()
 
     def render_citizen_report() -> None:
-        nonlocal citizen_report_view
+        nonlocal citizen_report_view, citizen_evidence_view
+        citizen_evidence.set_on_change(render_current)
+        if citizen_evidence_view is None:
+            citizen_evidence_view = CitizenEvidenceView(
+                ft,
+                citizen_evidence,
+                photo_picker,
+                handle_protected_response=_handle_report_protected_response,
+                refresh=render_current,
+            )
         if citizen_report_view is None:
             citizen_report_view = CitizenReportView(
                 ft,
@@ -633,12 +813,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                 refresh=render_current,
                 close=_close_citizen_report,
                 open_ticket=_open_report_ticket,
-                evidence_view=CitizenEvidenceView(
-                    ft,
-                    citizen_evidence,
-                    device_picker=FletDevicePhotoPicker(page),
-                    refresh=render_current,
-                ),
+                evidence_view=citizen_evidence_view,
             )
         account_id = _report_account_id()
         if account_id is not None and account_id not in restored_report_accounts:
@@ -663,8 +838,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         first_name = str(session.user.get("first_name", ""))
 
         async def logout(event: Any) -> None:
+            await camera_capture.dispose()
+            await photo_picker.dispose()
             await citizen_evidence.dispose()
-            citizen_evidence.clear_account_private_state()
             await access.sign_out()
             citizen_report.reset()
             restored_report_accounts.clear()
@@ -731,6 +907,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             login.abandon()
         else:
             await access.sign_out()
+            await camera_capture.dispose()
+            await photo_picker.dispose()
+            await citizen_evidence.dispose()
             citizen_report.reset()
             restored_report_accounts.clear()
             assert login is not None
@@ -739,8 +918,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_current()
 
     async def on_disconnect(event: Any) -> None:
+        await camera_capture.dispose()
+        await photo_picker.dispose()
         await citizen_evidence.dispose()
-        citizen_evidence.clear_account_private_state()
         assert login is not None
         login.abandon()
         registration.abandon()
@@ -843,6 +1023,19 @@ def _build_report_attempt_storage() -> SecureReportAttemptStorage | UnavailableR
         return SecureReportAttemptStorage(fss.SecureStorage())
     except BaseException:
         return UnavailableReportAttemptStorage()
+
+
+def _build_contribution_attempt_storage() -> SecureContributionAttemptStorage | UnavailableContributionAttemptStorage:
+    """Use a separate protected namespace for uncertain evidence contributions."""
+
+    try:
+        import flet_secure_storage as fss
+    except ModuleNotFoundError:
+        return UnavailableContributionAttemptStorage()
+    try:
+        return SecureContributionAttemptStorage(fss.SecureStorage())
+    except BaseException:
+        return UnavailableContributionAttemptStorage()
 
 
 def run() -> None:

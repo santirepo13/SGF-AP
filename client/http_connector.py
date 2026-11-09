@@ -9,7 +9,7 @@ from typing import Any
 from config import ConnectorConfig
 
 from .config import load_client_config
-from .transport import ConnectorResponse, RegistrationTransport
+from .transport import BinaryConnectorResponse, ConnectorResponse, MultipartFile, RegistrationTransport
 
 
 class RegistrationHttpConnector:
@@ -27,6 +27,11 @@ class RegistrationHttpConnector:
             opener=opener,
             access_token_supplier=access_token_supplier,
         )
+
+    def for_access_token(self, access_token: str) -> RegistrationHttpConnector:
+        bound = object.__new__(RegistrationHttpConnector)
+        bound._connector = self._connector.for_access_token(access_token)
+        return bound
 
     def register_citizen(
         self,
@@ -88,6 +93,16 @@ class RegistrationHttpConnector:
     ) -> ConnectorResponse:
         return self._connector.get_json(path, query_values, requires_identity=requires_identity)
 
+    def post_multipart(self, path: str, *, fields: Mapping[str, str], file: MultipartFile,
+                       requires_identity: bool, progress: Callable[[int, int], None] | None = None) -> ConnectorResponse:
+        return self._connector.post_multipart(path, fields=fields, file=file, requires_identity=requires_identity, progress=progress)
+
+    def get_binary(self, path: str, *, requires_identity: bool, maximum_bytes: int) -> BinaryConnectorResponse | ConnectorResponse:
+        return self._connector.get_binary(path, requires_identity=requires_identity, maximum_bytes=maximum_bytes)
+
+    def delete_json(self, path: str, *, requires_identity: bool = False) -> ConnectorResponse:
+        return self._connector.delete_json(path, requires_identity=requires_identity)
+
 
 LoginHttpConnector = RegistrationHttpConnector
 
@@ -124,8 +139,10 @@ def build_login_connector(
 
 
 __all__ = [
+    "BinaryConnectorResponse",
     "ConnectorResponse",
     "LoginHttpConnector",
+    "MultipartFile",
     "RegistrationHttpConnector",
     "build_login_connector",
     "build_registration_connector",
