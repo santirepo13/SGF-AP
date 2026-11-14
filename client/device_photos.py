@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import BinaryIO
-from zoneinfo import ZoneInfo, Protocol
+from typing import BinaryIO, Protocol
+from zoneinfo import ZoneInfo
 
 
 class DevicePhotoError(RuntimeError):
