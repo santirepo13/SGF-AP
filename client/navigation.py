@@ -15,6 +15,9 @@ class ScreenName(str, Enum):
     CITIZEN_REPORT = "citizen_report"
     CITIZEN_TICKET = "citizen_ticket"
     CITIZEN_CONTRIBUTION = "citizen_contribution"
+    CITIZEN_REPORTS = "citizen_reports"
+    CITIZEN_REPORT_DETAIL = "citizen_report_detail"
+    PUBLIC_REPORT = "public_report"
     OPERATOR = "operator"
     COORDINATOR = "coordinator"
     CREW = "crew"
@@ -28,7 +31,7 @@ ROLE_DESTINATIONS: dict[str, ScreenName] = {
     "Crew": ScreenName.CREW,
     "Admin": ScreenName.ADMIN,
 }
-PROTECTED_SCREENS = frozenset((*ROLE_DESTINATIONS.values(), ScreenName.CITIZEN_REPORT, ScreenName.CITIZEN_TICKET))
+PROTECTED_SCREENS = frozenset((*ROLE_DESTINATIONS.values(), ScreenName.CITIZEN_REPORT, ScreenName.CITIZEN_TICKET, ScreenName.CITIZEN_REPORTS, ScreenName.CITIZEN_REPORT_DETAIL))
 
 
 @dataclass
@@ -52,11 +55,13 @@ class NavigationController:
         *,
         on_screen_closed: Callable[[ScreenName], None] | None = None,
         access_allowed: Callable[[], bool] | None = None,
+        confirmed_role: Callable[[], str | None] | None = None,
     ) -> None:
         self.active_screen = ScreenName.LOGIN
         self.login = LoginFormState()
         self._on_screen_closed = on_screen_closed
         self._access_allowed = access_allowed or (lambda: True)
+        self._confirmed_role = confirmed_role or (lambda: None)
         self._listeners: list[Callable[[ScreenName], None]] = []
 
     def add_listener(self, listener: Callable[[ScreenName], None]) -> None:
@@ -71,6 +76,15 @@ class NavigationController:
         """Switch screens once and never open a private area without confirmed access."""
 
         if screen in PROTECTED_SCREENS and not self._access_allowed():
+            return self.revoke_access()
+        if screen is ScreenName.PUBLIC_REPORT and not self._access_allowed():
+            if self.active_screen is not ScreenName.PUBLIC_REPORT:
+                self._close(self.active_screen)
+            self.active_screen = ScreenName.PUBLIC_REPORT
+            for listener in tuple(self._listeners):
+                listener(screen)
+            return True
+        if screen in {ScreenName.CITIZEN_REPORTS, ScreenName.CITIZEN_REPORT_DETAIL} and self._confirmed_role() != "Citizen":
             return self.revoke_access()
         if screen is self.active_screen:
             return False

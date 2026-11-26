@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,6 +18,13 @@ from api.contracts import (
     CitizenTicketRegistrationOutput,
     CitizenContributionInput,
     CitizenContributionOutput,
+    CitizenHistoryPageInput,
+    CitizenQueryPageInput,
+    CitizenTicketCodeInput,
+    CitizenTicketDetailOutput,
+    CitizenTicketPageOutput,
+    CitizenHistoryPageOutput,
+    PublicTicketOutput,
     TicketAssignmentInput,
     TicketAttentionInput,
     TicketClosureReviewInput,
@@ -65,6 +73,10 @@ _GET_CITIZEN_CONTRIBUTION_ATTEMPT = HttpOperation(
 _GET_BY_ID = HttpOperation("TicketService", "get_by_id")
 _GET_BY_CODE = HttpOperation("TicketService", "get_by_code")
 _LIST_BY_FILTERS = HttpOperation("TicketService", "list_by_filters")
+_LIST_CITIZEN_REPORTS = HttpOperation("TicketService", "list_citizen_reports", no_store=True)
+_GET_CITIZEN_REPORT = HttpOperation("TicketService", "get_citizen_report", no_store=True)
+_LIST_CITIZEN_HISTORY = HttpOperation("TicketService", "list_citizen_history", no_store=True)
+_GET_PUBLIC_REPORT = HttpOperation("TicketService", "get_public_report", no_store=True)
 _VALIDATE = HttpOperation("TicketService", "validate")
 _PRIORITIZE = HttpOperation("TicketService", "prioritize")
 _ASSIGN = HttpOperation("TicketService", "assign")
@@ -172,6 +184,259 @@ _CITIZEN_MATCH_INPUT_SCHEMA = {
     },
 }
 
+_CITIZEN_EVIDENCE_REFERENCE_SCHEMA = {
+    "type": "object",
+    "required": [
+        "evidence_id", "media_type", "size_bytes", "captured_at", "capture_source",
+        "uploaded_at", "content_available",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "evidence_id": {"type": "integer", "minimum": 1},
+        "media_type": {"type": "string", "nullable": True},
+        "size_bytes": {"type": "integer", "minimum": 0, "nullable": True},
+        "captured_at": {"type": "string", "format": "date-time", "nullable": True},
+        "capture_source": {"type": "string", "nullable": True},
+        "uploaded_at": {"type": "string", "format": "date-time", "nullable": True},
+        "content_available": {"type": "boolean"},
+    },
+}
+_CITIZEN_TICKET_ITEM_SCHEMA = {
+    "type": "object",
+    "required": ["code", "created_at", "status", "status_label", "failure_type_label", "last_updated_at"],
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string", "maxLength": 24},
+        "created_at": {"type": "string", "format": "date-time"},
+        "status": {"type": "string"},
+        "status_label": {"type": "string"},
+        "failure_type_label": {"type": "string"},
+        "last_updated_at": {"type": "string", "format": "date-time"},
+    },
+}
+_CITIZEN_TICKET_PAGE_SCHEMA = {
+    "type": "object",
+    "required": ["items", "next_cursor"],
+    "additionalProperties": False,
+    "properties": {
+        "items": {"type": "array", "items": _CITIZEN_TICKET_ITEM_SCHEMA},
+        "next_cursor": {"type": "string", "nullable": True},
+    },
+}
+_CITIZEN_DETAIL_SCHEMA = {
+    "type": "object",
+    "required": [
+        "code", "created_at", "status", "status_label", "failure_type_label", "last_updated_at",
+        "public_summary", "description", "formatted_address", "contact_email", "contact_phone",
+        "email_notifications", "evidences",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        **_CITIZEN_TICKET_ITEM_SCHEMA["properties"],
+        "public_summary": {"type": "string"},
+        "description": {"type": "string"},
+        "formatted_address": {"type": "string", "nullable": True},
+        "contact_email": {"type": "string", "nullable": True},
+        "contact_phone": {"type": "string", "nullable": True},
+        "email_notifications": {"type": "boolean"},
+        "evidences": {"type": "array", "items": _CITIZEN_EVIDENCE_REFERENCE_SCHEMA},
+    },
+}
+_CITIZEN_HISTORY_ITEM_SCHEMA = {
+    "type": "object",
+    "required": ["occurred_at", "action", "label"],
+    "additionalProperties": False,
+    "properties": {
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "action": {"type": "string"},
+        "label": {"type": "string"},
+    },
+}
+_CITIZEN_HISTORY_PAGE_SCHEMA = {
+    "type": "object",
+    "required": ["items", "next_cursor"],
+    "additionalProperties": False,
+    "properties": {
+        "items": {"type": "array", "items": _CITIZEN_HISTORY_ITEM_SCHEMA},
+        "next_cursor": {"type": "string", "nullable": True},
+    },
+}
+_PUBLIC_TICKET_SCHEMA = {
+    "type": "object",
+    "required": ["code", "status", "status_label", "last_updated_at", "public_summary"],
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string", "maxLength": 24},
+        "status": {"type": "string"},
+        "status_label": {"type": "string"},
+        "last_updated_at": {"type": "string", "format": "date-time"},
+        "public_summary": {"type": "string"},
+    },
+}
+
+
+def _validated_code(code: str, correlation_id: str) -> CitizenTicketCodeInput:
+    return build_contract(CitizenTicketCodeInput, {"code": code}, correlation_id=correlation_id)
+
+
+def _page(contract_type, limit: int, cursor: str | None, correlation_id: str):
+    return build_contract(
+        contract_type,
+        {"limit": limit, "cursor": cursor},
+        correlation_id=correlation_id,
+    )
+
+
+def _page_from_request(request: Request, contract_type, default_limit: int, maximum: int, correlation_id: str):
+    values: dict[str, str] = {}
+    allowed = {"limit", "cursor"}
+    for name, value in request.query_params.multi_items():
+        if name not in allowed or name in values:
+            raise ApplicationError.invalid_value(name, "El parámetro de consulta no es válido.", correlation_id=correlation_id)
+        values[name] = value
+    raw_limit = values.get("limit", str(default_limit))
+    if re.fullmatch(r"[0-9]+", raw_limit, flags=re.ASCII) is None:
+        raise ApplicationError.invalid_value("limit", "El límite no es válido.", correlation_id=correlation_id)
+    try:
+        parsed_limit = int(raw_limit)
+    except (TypeError, ValueError) as error:
+        raise ApplicationError.invalid_value("limit", "El límite no es válido.", correlation_id=correlation_id, cause=error) from error
+    if not 1 <= parsed_limit <= maximum:
+        raise ApplicationError.invalid_value("limit", "El límite no es válido.", correlation_id=correlation_id)
+    return _page(contract_type, parsed_limit, values.get("cursor"), correlation_id)
+
+
+def _reject_query_parameters(request: Request, correlation_id: str, *, allowed: set[str] | None = None) -> None:
+    values = tuple(request.query_params.multi_items())
+    seen: set[str] = set()
+    for name, _value in values:
+        if allowed is None or name not in allowed or name in seen:
+            raise ApplicationError.invalid_value(name, "El parámetro de consulta no está permitido.", correlation_id=correlation_id)
+        seen.add(name)
+
+
+@router.get(
+    "/citizen/mine/{code}/evidences",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes({
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["evidences"],
+        "properties": {"evidences": {"type": "array", "items": _CITIZEN_EVIDENCE_REFERENCE_SCHEMA}},
+    }),
+    openapi_extra={"security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+async def list_citizen_ticket_evidences(
+    code: str,
+    request: Request,
+    evidence_service: EvidenceServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    _reject_query_parameters(request, correlation_id)
+    _validated_code(code, correlation_id)
+    return await run_in_threadpool(
+        _execute,
+        request,
+        adapter,
+        evidence_service,
+        _LIST_CITIZEN_TICKET_EVIDENCE,
+        code,
+    )
+
+
+@router.get(
+    "/citizen/mine/{code}/history",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_HISTORY_PAGE_SCHEMA),
+    summary="Consultar el historial ciudadano paginado",
+    description="Historial privado del titular, ordenado por fecha ascendente. Retorna items y next_cursor; el cursor es independiente del listado.",
+    openapi_extra={"security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+async def list_citizen_history(
+    code: str,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    _reject_query_parameters(request, correlation_id, allowed={"limit", "cursor"})
+    page = _page_from_request(request, CitizenHistoryPageInput, 50, 100, correlation_id)
+    return await run_in_threadpool(
+        _execute, request, adapter, ticket_service, _LIST_CITIZEN_HISTORY,
+        _validated_code(code, correlation_id).code, page,
+    )
+
+
+@router.get(
+    "/citizen/mine/{code}",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_DETAIL_SCHEMA),
+    summary="Consultar el detalle privado de un reporte propio",
+    description="Solo devuelve el detalle del reporte perteneciente al actor autenticado. Un reporte ajeno o inexistente retorna RES-001.",
+    openapi_extra={"parameters": [], "security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+async def get_citizen_report(
+    code: str,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    _reject_query_parameters(request, correlation_id)
+    return await run_in_threadpool(
+        _execute, request, adapter, ticket_service, _GET_CITIZEN_REPORT,
+        _validated_code(code, correlation_id),
+    )
+
+
+@router.get(
+    "/citizen/mine",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_CITIZEN_TICKET_PAGE_SCHEMA),
+    summary="Listar reportes propios",
+    description="Lista paginada del actor autenticado; una lista vacía es exitosa y devuelve items vacío y next_cursor nulo.",
+    openapi_extra={"security": [{"HTTPBasic": [], "UserAccessToken": []}]},
+)
+async def list_my_citizen_reports(
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    _reject_query_parameters(request, correlation_id, allowed={"limit", "cursor"})
+    page = _page_from_request(request, CitizenQueryPageInput, 20, 50, correlation_id)
+    return await run_in_threadpool(
+        _execute, request, adapter, ticket_service, _LIST_CITIZEN_REPORTS, page,
+    )
+
+
+@router.get(
+    "/public/{code}",
+    status_code=200,
+    response_class=JSONResponse,
+    responses=response_envelopes(_PUBLIC_TICKET_SCHEMA),
+    summary="Consultar el avance público de un reporte",
+    description="No requiere sesión ciudadana. Solo devuelve código, estado público, fecha de actualización y resumen. Código inexistente retorna RES-001.",
+    openapi_extra={"parameters": [], "security": [{"HTTPBasic": []}]},
+)
+async def get_public_report(
+    code: str,
+    request: Request,
+    ticket_service: TicketServiceDependency,
+    adapter: HttpAdapterDependency,
+    correlation_id: CorrelationIdDependency,
+) -> JSONResponse:
+    _reject_query_parameters(request, correlation_id)
+    _validated_code(code, correlation_id)
+    return await run_in_threadpool(
+        _execute, request, adapter, ticket_service, _GET_PUBLIC_REPORT, code,
+    )
+
 _CITIZEN_CONTRIBUTION_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["request_key", "outcome", "contribution_id", "ticket_code", "created_at", "evidence_count", "evidence_ids"],
@@ -210,26 +475,6 @@ _CITIZEN_CONTRIBUTION_SCHEMA = {
         },
     },
 }
-
-@router.get(
-    "/citizen/mine/{code}/evidences",
-    status_code=200,
-    response_class=JSONResponse,
-)
-def list_citizen_ticket_evidences(
-    code: str,
-    request: Request,
-    evidence_service: EvidenceServiceDependency,
-    adapter: HttpAdapterDependency,
-) -> JSONResponse:
-    return _execute(
-        request,
-        adapter,
-        evidence_service,
-        _LIST_CITIZEN_TICKET_EVIDENCE,
-        code,
-    )
-
 
 @router.post(
     "/citizen/contributions",
@@ -509,7 +754,7 @@ def get_by_code(
     response_class=JSONResponse,
     responses=response_envelopes(_TICKET_OUTPUT_SCHEMA),
     summary="Consultar un ticket por identificador",
-    description="Devuelve la información pública completa del ticket indicado.",
+    description="Ruta operacional protegida. Requiere actor activo, operational_ticket_read y la regla de recurso correspondiente al rol interno. No es una proyección pública ni está disponible para Citizen.",
 )
 def get_by_id(
     ticket_id: int,

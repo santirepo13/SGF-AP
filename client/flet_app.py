@@ -12,6 +12,8 @@ from .citizen_evidence import CitizenEvidenceController
 from .citizen_evidence_view import CitizenEvidenceView
 from .citizen_report import CitizenReportController
 from .citizen_report_view import CitizenReportView
+from .citizen_queries import CitizenQueryController, QueryState
+from .citizen_query_views import CitizenQueryViews
 from .device_photos import DevicePhotoError, FletDevicePhotoPicker
 from .report_attempt_storage import (
     SecureContributionAttemptStorage,
@@ -241,6 +243,11 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
 
     access = AccessCoordinator(authenticated, _build_access_storage(), connector)
     citizen_connector = HttpCitizenReportConnector(connector)
+    citizen_queries = CitizenQueryController(
+        citizen_connector,
+        access,
+        lambda scope, response: _handle_query_protected_response(scope, response),
+    )
     citizen_report = CitizenReportController(
         citizen_connector,
         _build_report_attempt_storage(),
@@ -258,8 +265,11 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
     citizen_report.set_evidence_attachment_callback(citizen_evidence.mark_attached)
     citizen_report_view: CitizenReportView | None = None
     citizen_evidence_view: CitizenEvidenceView | None = None
-    consultation_code: str | None = None
+    citizen_query_views: CitizenQueryViews | None = None
+    query_detail_code: str | None = None
+    query_public_code: str | None = None
     restored_report_accounts: set[int] = set()
+    loaded_report_accounts: set[int] = set()
     login: LoginController | None = None
     registration = RegistrationController(connector)
     recovery = PasswordRecoveryController(connector)
@@ -273,10 +283,19 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             recovery.abandon()
         elif screen is ScreenName.CITIZEN_REPORT:
             citizen_report.abandon()
+        elif screen in {ScreenName.CITIZEN_REPORTS, ScreenName.CITIZEN_REPORT_DETAIL}:
+            citizen_queries.clear_private_state()
+        elif screen is ScreenName.PUBLIC_REPORT:
+            citizen_queries.clear_evidence_previews()
 
     navigation = NavigationController(
         on_screen_closed=closed,
         access_allowed=lambda: access.access_allowed,
+        confirmed_role=lambda: (
+            str(authenticated.session.user.get("role_name"))
+            if authenticated.session is not None
+            else None
+        ),
     )
 
     async def establish_authenticated(output: LoginOutput) -> None:
@@ -328,6 +347,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         refresh()
 
     def render_current() -> None:
+        if navigation.active_screen is ScreenName.PUBLIC_REPORT:
+            render_citizen_query_screen(ScreenName.PUBLIC_REPORT)
+            return
         access_state = access.state
         if access_state.status is AccessStatus.CHECKING:
             render_access_checking()
@@ -344,8 +366,13 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             render_recovery()
         elif active is ScreenName.CITIZEN_REPORT:
             render_citizen_report()
-        elif active is ScreenName.CITIZEN_TICKET:
-            render_citizen_ticket()
+        elif active in {
+            ScreenName.CITIZEN_REPORTS,
+            ScreenName.CITIZEN_REPORT_DETAIL,
+            ScreenName.PUBLIC_REPORT,
+            ScreenName.CITIZEN_TICKET,
+        }:
+            render_citizen_query_screen(active)
         else:
             render_role_destination(active)
 
@@ -518,6 +545,17 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                     centered(message),
                     centered(ft.TextButton("Crear cuenta ciudadana", on_click=open_registration)),
                     centered(ft.TextButton("¿Olvidaste tu contraseña?", on_click=open_recovery)),
+                    centered(
+                        ft.TextField(
+                            label="Código para consulta pública",
+                            on_submit=lambda event: (
+                                _open_public_from_code(event.control.value)
+                                if isinstance(getattr(event.control, "value", None), str)
+                                and event.control.value
+                                else None
+                            ),
+                        )
+                    ),
                 ],
             ),
             vertically_centered=True,
@@ -735,7 +773,21 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         await camera_capture.dispose()
         citizen_evidence.clear_account_private_state()
         citizen_report.reset()
+        citizen_queries.clear_private_state()
         restored_report_accounts.clear()
+        loaded_report_accounts.clear()
+        navigation.revoke_access()
+        render_current()
+        return True
+
+    async def _handle_query_protected_response(scope: object | None, response: object) -> bool:
+        if not await access.handle_protected_error(scope, response):
+            return False
+        citizen_queries.clear_private_state()
+        citizen_evidence.clear_account_private_state()
+        citizen_report.reset()
+        restored_report_accounts.clear()
+        loaded_report_accounts.clear()
         navigation.revoke_access()
         render_current()
         return True
@@ -745,45 +797,94 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         render_current()
 
     def _open_report_ticket(code: str) -> None:
-        nonlocal consultation_code
-        consultation_code = code
-        navigation.open(ScreenName.CITIZEN_TICKET)
+        nonlocal query_detail_code
+        citizen_queries.clear_private_state()
+        query_detail_code = code
+        navigation.open(ScreenName.CITIZEN_REPORT_DETAIL)
         render_current()
+        page.run_task(_load_private_report, code)
 
-    def render_citizen_ticket() -> None:
-        state = citizen_report.snapshot()
-        ticket = state.confirmation if state.confirmation is not None else {}
-        code = consultation_code or str(ticket.get("code", ""))
+    def _open_verified_report_ticket(code: str) -> None:
+        nonlocal query_detail_code
+        query_detail_code = code
+        navigation.open(ScreenName.CITIZEN_REPORT_DETAIL)
+        render_current()
+        page.run_task(_load_private_report, code)
 
-        async def new_report(event: Any) -> None:
-            account_id = _report_account_id()
-            if account_id is None:
-                return
-            await citizen_report.start_new_report(account_id)
-            citizen_evidence.clear_account_private_state()
-            navigation.open(ScreenName.CITIZEN_REPORT)
+    async def _load_private_report(code: str) -> None:
+        await citizen_queries.load_private_detail(code)
+        if citizen_queries.snapshot().detail_state is QueryState.READY:
+            await citizen_queries.load_history(code)
+        if navigation.active_screen is ScreenName.CITIZEN_REPORT_DETAIL and query_detail_code == code:
             render_current()
 
-        def back(event: Any) -> None:
-            navigation.open(ScreenName.CITIZEN_REPORT)
+    async def _load_private_history(code: str) -> None:
+        await citizen_queries.load_history(code)
+        if navigation.active_screen is ScreenName.CITIZEN_REPORT_DETAIL and query_detail_code == code:
             render_current()
 
-        replace(
-            ft.Column(
-                controls=[
-                    ft.Text("Consulta del reporte", size=22, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"Código: {code}", selectable=True),
-                    ft.Text(f"Estado: {ticket.get('status', 'Sin información')}"),
-                    ft.Text(f"Fecha y hora: {ticket.get('created_at', 'Sin información')}"),
-                    ft.Text("Descripción", weight=ft.FontWeight.BOLD),
-                    ft.Text(state.description or "Sin descripción disponible."),
-                    ft.Button("Registrar otra falla", on_click=new_report),
-                    ft.TextButton("Volver al reporte", on_click=back),
-                ],
-                spacing=12,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    async def _load_public_report(code: str) -> None:
+        await citizen_queries.load_public(code)
+        if navigation.active_screen is ScreenName.PUBLIC_REPORT and query_public_code == code:
+            render_current()
+
+    async def _verify_public_ownership(code: str) -> bool:
+        session = authenticated.session
+        if (
+            not access.access_allowed
+            or session is None
+            or session.user.get("role_name") != "Citizen"
+        ):
+            return False
+        snapshot = await citizen_queries.ensure_private_detail(code)
+        return snapshot.detail_state is QueryState.READY and snapshot.verified_report_code == code
+
+    async def _load_my_reports(account_id: int) -> None:
+        await citizen_queries.refresh_reports()
+        if navigation.active_screen is ScreenName.CITIZEN_REPORTS and _report_account_id() == account_id:
+            render_current()
+
+    def _open_my_reports(event: Any) -> None:
+        account_id = _report_account_id()
+        if account_id is None:
+            return
+        navigation.open(ScreenName.CITIZEN_REPORTS)
+        render_current()
+        loaded_report_accounts.add(account_id)
+        page.run_task(_load_my_reports, account_id)
+
+    def _open_public_from_code(code: str) -> None:
+        nonlocal query_public_code
+        citizen_queries.clear_private_state()
+        query_public_code = code
+        navigation.open(ScreenName.PUBLIC_REPORT)
+        render_current()
+        page.run_task(_load_public_report, code)
+
+    def render_citizen_query_screen(screen: ScreenName) -> None:
+        nonlocal citizen_query_views
+        if citizen_query_views is None:
+            citizen_query_views = CitizenQueryViews(
+                ft,
+                citizen_queries,
+                refresh=render_current,
+                close=lambda: (navigation.open(ScreenName.CITIZEN), render_current()),
+                open_private_detail=_open_verified_report_ticket,
+                open_public=_open_public_from_code,
+                can_verify_private=lambda: access.access_allowed and (
+                    authenticated.session is not None
+                    and authenticated.session.user.get("role_name") == "Citizen"
+                ),
+                verify_private_ownership=_verify_public_ownership,
             )
-        )
+        if screen is ScreenName.PUBLIC_REPORT and query_public_code is not None:
+            citizen_query_views.set_public_code(query_public_code)
+        if screen is ScreenName.CITIZEN_REPORTS:
+            replace(citizen_query_views.build_reports())
+        elif screen is ScreenName.PUBLIC_REPORT:
+            replace(citizen_query_views.build_public())
+        else:
+            replace(citizen_query_views.build_private_detail())
 
     async def _restore_citizen_report_attempt(account_id: int) -> None:
         await citizen_report.restore_pending(account_id)
@@ -813,6 +914,7 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                 refresh=render_current,
                 close=_close_citizen_report,
                 open_ticket=_open_report_ticket,
+                open_public=_open_public_from_code,
                 evidence_view=citizen_evidence_view,
             )
         account_id = _report_account_id()
@@ -843,7 +945,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             await citizen_evidence.dispose()
             await access.sign_out()
             citizen_report.reset()
+            citizen_queries.clear_private_state()
             restored_report_accounts.clear()
+            loaded_report_accounts.clear()
             assert login is not None
             login.reset()
             navigation.revoke_access()
@@ -853,6 +957,19 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             if destination is ScreenName.CITIZEN:
                 navigation.open(ScreenName.CITIZEN_REPORT)
                 render_current()
+
+        def open_public_lookup(event: Any) -> None:
+            value = getattr(getattr(event, "control", None), "value", "")
+            if isinstance(value, str) and value:
+                _open_public_from_code(value)
+
+        def open_citizen_reports(event: Any) -> None:
+            account_id = _report_account_id()
+            if account_id is None:
+                return
+            navigation.open(ScreenName.CITIZEN_REPORTS)
+            render_current()
+            page.run_task(_load_my_reports, account_id)
 
         labels = {
             ScreenName.CITIZEN: "Área ciudadana",
@@ -880,6 +997,14 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
                                     on_click=open_citizen_report,
                                 )
                             )
+                            ,
+                            centered(ft.Button("Mis reportes", on_click=open_citizen_reports)),
+                            centered(
+                                ft.TextField(
+                                    label="Código para consulta pública",
+                                    on_submit=open_public_lookup,
+                                )
+                            ),
                         ]
                         if destination is ScreenName.CITIZEN
                         else []
@@ -900,7 +1025,10 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             navigation.open(ScreenName.CITIZEN)
             render_current()
         elif active is ScreenName.CITIZEN_TICKET:
-            navigation.open(ScreenName.CITIZEN_REPORT)
+            navigation.open(ScreenName.CITIZEN)
+            render_current()
+        elif active in {ScreenName.CITIZEN_REPORTS, ScreenName.CITIZEN_REPORT_DETAIL, ScreenName.PUBLIC_REPORT}:
+            navigation.open(ScreenName.CITIZEN)
             render_current()
         elif active is ScreenName.LOGIN:
             assert login is not None
@@ -911,7 +1039,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
             await photo_picker.dispose()
             await citizen_evidence.dispose()
             citizen_report.reset()
+            citizen_queries.clear_private_state()
             restored_report_accounts.clear()
+            loaded_report_accounts.clear()
             assert login is not None
             login.reset()
             navigation.revoke_access()
@@ -926,7 +1056,9 @@ def main(page: Any, *, connector_factory: Callable[[], RegistrationHttpConnector
         registration.abandon()
         recovery.abandon()
         citizen_report.reset()
+        citizen_queries.clear_private_state()
         restored_report_accounts.clear()
+        loaded_report_accounts.clear()
         await access.forget_process()
 
     async def on_app_lifecycle_state_change(event: Any) -> None:

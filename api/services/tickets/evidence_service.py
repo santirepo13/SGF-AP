@@ -8,6 +8,7 @@ from api.contracts import (
     EvidenceOutput,
     OperationResult,
 )
+from api.enums import RoleName
 from api.interfaces.repositories import EvidenceRepositoryInterface, TicketRepositoryInterface, UserRepositoryInterface
 from api.errors import ApplicationError, ErrorCode
 from api.security import CitizenAuthorizer, role_operation_authorizer
@@ -25,6 +26,7 @@ class EvidenceService(ServiceBase):
         *,
         storage=None,
         roles=None,
+        crew_members=None,
         **kwargs,
     ):
         if kwargs.get("authorizer") is None:
@@ -35,6 +37,7 @@ class EvidenceService(ServiceBase):
         self.users = users
         self.storage = storage
         self.roles = roles
+        self.crew_members = crew_members
         self.citizen_authorizer = CitizenAuthorizer()
 
     @staticmethod
@@ -58,16 +61,26 @@ class EvidenceService(ServiceBase):
             value = self.evidences.get_by_id(evidence_id)
             if value is None:
                 raise self._missing("evidence", context)
+            ticket = self.tickets.get_by_id(value.ticket_id)
+            self._require_ticket_resource(context, ticket)
             return self._out(value)
 
-        return self._execute(context, "EvidenceService.get_by_id", work)
+        return self._execute(context, "EvidenceService.get_by_id", work, actor_required=True)
 
     def list_by_ticket(self, context, ticket_id: int) -> OperationResult[list[EvidenceOutput]]:
         # Operational-only safe projection; never return file_path.
+        def work():
+            ticket = self.tickets.get_by_id(ticket_id)
+            if ticket is None:
+                raise self._missing("ticket", context)
+            self._require_ticket_resource(context, ticket)
+            return [self._out(value) for value in self.evidences.list_by_ticket(ticket_id)]
+
         return self._execute(
             context,
             "EvidenceService.list_by_ticket",
-            lambda: [self._out(value) for value in self.evidences.list_by_ticket(ticket_id)],
+            work,
+            actor_required=True,
         )
 
     def list_by_ticket_and_uploader(
@@ -76,14 +89,29 @@ class EvidenceService(ServiceBase):
         ticket_id: int,
         uploaded_by: int,
     ) -> OperationResult[list[EvidenceOutput]]:
+        def work():
+            ticket = self.tickets.get_by_id(ticket_id)
+            if ticket is None:
+                raise self._missing("ticket", context)
+            self._require_ticket_resource(context, ticket)
+            return [self._out(value) for value in self.evidences.list_by_ticket_and_uploader(ticket_id, uploaded_by)]
+
         return self._execute(
             context,
             "EvidenceService.list_by_ticket_and_uploader",
-            lambda: [
-                self._out(value)
-                for value in self.evidences.list_by_ticket_and_uploader(ticket_id, uploaded_by)
-            ],
+            work,
+            actor_required=True,
         )
+
+    def _require_ticket_resource(self, context, ticket) -> None:
+        if ticket is None:
+            raise self._missing("ticket", context)
+        actor = context.actor
+        if actor is None or getattr(getattr(actor, "public_user", None), "role_name", None) != RoleName.CREW.value:
+            return
+        membership = self.crew_members.get_by_user_id(actor.user_id) if self.crew_members is not None else None
+        if ticket is None or membership is None or membership.crew_id != ticket.crew_id:
+            raise self._missing("ticket", context)
 
     def create_metadata(self, context, data: EvidenceCreateInput) -> OperationResult[EvidenceOutput]:
         # Operational-only legacy entry; Citizens cannot provide file_path.

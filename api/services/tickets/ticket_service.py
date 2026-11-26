@@ -17,6 +17,14 @@ from api.contracts import (
     CitizenContributionAttemptOutput,
     CitizenContributionInput,
     CitizenContributionOutput,
+    CitizenHistoryItem,
+    CitizenHistoryPageInput,
+    CitizenHistoryPageOutput,
+    CitizenQueryPageInput,
+    CitizenTicketCodeInput,
+    CitizenTicketDetailOutput,
+    CitizenTicketPageOutput,
+    PublicTicketOutput,
     HistoryEventCreateInput,
     OperationResult,
     TicketAttentionInput,
@@ -30,7 +38,7 @@ from api.contracts import (
     TicketUpdateInput,
     UNSET,
 )
-from api.enums import ActionName, StatusName
+from api.enums import ActionName, RoleName, StatusName
 from api.errors import ApplicationError
 from api.interfaces.repositories import (
     ActionRepositoryInterface,
@@ -58,9 +66,20 @@ from api.services.operation_attempts import (
 
 from ..base import ServiceBase
 from .citizen_ticket_validation import (
+    effective_email_notifications,
     validate_citizen_attempt_lookup,
     validate_citizen_match,
     validate_citizen_ticket_create,
+)
+from .citizen_projections import (
+    CitizenCursorCodec,
+    CitizenCursorError,
+    action_projection,
+    detail_output,
+    formatted_address,
+    list_item,
+    public_output,
+    status_projection,
 )
 from .evidence_attachment import EvidenceAttachment
 from .ticket_matcher import TicketMatcher, _OPEN_STATUS_NAMES
@@ -86,6 +105,7 @@ class TicketService(ServiceBase):
         actions: ActionRepositoryInterface,
         addresses: AddressRepositoryInterface | None = None,
         crews: CrewRepositoryInterface | None = None,
+        crew_members=None,
         evidences: EvidenceRepositoryInterface | None = None,
         events: HistoryEventRepositoryInterface | None = None,
         roles: RoleRepositoryInterface | None = None,
@@ -95,6 +115,8 @@ class TicketService(ServiceBase):
         contributions: CitizenContributionRepositoryInterface | None = None,
         citizen_authorizer: CitizenAuthorizer | None = None,
         citizen_description_max_length: int = 4_000,
+        citizen_cursor_codec: CitizenCursorCodec | None = None,
+        evidence_storage=None,
         **kwargs,
     ) -> None:
         if kwargs.get("authorizer") is None:
@@ -109,6 +131,7 @@ class TicketService(ServiceBase):
         self.actions = actions
         self.addresses = addresses
         self.crews = crews
+        self.crew_members = crew_members
         self.evidences = evidences
         self.events = events
         self.roles = roles
@@ -118,6 +141,8 @@ class TicketService(ServiceBase):
         self.contributions = contributions
         self.citizen_authorizer = citizen_authorizer or CitizenAuthorizer()
         self.citizen_description_max_length = citizen_description_max_length
+        self.citizen_cursor_codec = citizen_cursor_codec
+        self.evidence_storage = evidence_storage
 
     @staticmethod
     def _out(value) -> TicketOutput:
@@ -171,6 +196,7 @@ class TicketService(ServiceBase):
                     address_id=data.address_id,
                     contact_email=data.contact_email,
                     contact_phone=data.contact_phone,
+                    email_notifications=data.email_notifications,
                 )
             )
             if self.events is not None:
@@ -419,10 +445,16 @@ class TicketService(ServiceBase):
             raise ApplicationError.persistence_failure(correlation_id=context.correlation_id, cause=error) from error
 
     def get_by_id(self, context, ticket_id: int) -> OperationResult[TicketOutput]:
+        def work():
+            value = self._ticket(context, ticket_id)
+            self._require_ticket_resource(context, value)
+            return self._out(value)
+
         return self._run(
             context,
             "TicketService.get_by_id",
-            lambda: self._out(self._ticket(context, ticket_id)),
+            work,
+            actor_required=True,
         )
 
     def get_by_code(self, context, code: str) -> OperationResult[TicketOutput]:
@@ -430,20 +462,97 @@ class TicketService(ServiceBase):
             value = self.tickets.get_by_code(code)
             if value is None:
                 raise self._missing("ticket", context)
+            self._require_ticket_resource(context, value)
             return self._out(value)
 
-        return self._run(context, "TicketService.get_by_code", work)
+        return self._run(context, "TicketService.get_by_code", work, actor_required=True)
 
     def list_by_filters(
         self,
         context,
         filters: TicketFilters | None = None,
     ) -> OperationResult[list[TicketOutput]]:
-        return self._run(
-            context,
-            "TicketService.list_by_filters",
-            lambda: [self._out(value) for value in self.tickets.list_by_filters(filters)],
-        )
+        def work():
+            effective_filters = filters
+            if _actor_role_name(context.actor) == RoleName.CREW.value:
+                membership = self.crew_members.get_by_user_id(context.actor.user_id) if self.crew_members is not None else None
+                if membership is None:
+                    return []
+                from dataclasses import replace
+                if filters is not None and filters.crew_id not in (None, membership.crew_id):
+                    raise self._missing("ticket", context)
+                effective_filters = replace(filters or TicketFilters(), crew_id=membership.crew_id)
+            return [self._out(value) for value in self.tickets.list_by_filters(effective_filters)]
+
+        return self._run(context, "TicketService.list_by_filters", work, actor_required=True)
+
+    def list_citizen_reports(self, context, page: CitizenQueryPageInput) -> OperationResult[CitizenTicketPageOutput]:
+        def work():
+            user = self._require_current_citizen(context, lock=False)
+            cursor_position = self._decode_page(page, context, "reports", str(user.id), 50)
+            from dataclasses import replace
+            query_page = replace(page, limit=min(page.limit, 50))
+            rows = self.tickets.list_citizen_reports(user.id, query_page, cursor_position)
+            has_more = len(rows) > query_page.limit
+            rows = rows[: query_page.limit]
+            next_cursor = None
+            if has_more and rows:
+                row = rows[-1]
+                next_cursor = self._encode_cursor("reports", str(user.id), row["created_at"], row["code"])
+            return CitizenTicketPageOutput(tuple(list_item(row) for row in rows), next_cursor)
+
+        return self._run(context, "TicketService.list_citizen_reports", work, actor_required=True)
+
+    def get_citizen_report(self, context, data: CitizenTicketCodeInput | str) -> OperationResult[CitizenTicketDetailOutput]:
+        def work():
+            user = self._require_current_citizen(context, lock=False)
+            code = data.code if isinstance(data, CitizenTicketCodeInput) else data
+            self._validate_code(code, context)
+            row = self.tickets.get_citizen_report(user.id, code)
+            if row is None:
+                raise self._missing("ticket", context)
+            if self.evidences is None:
+                raise ApplicationError.catalog_unavailable("evidence", correlation_id=context.correlation_id)
+            values = self.evidences.list_citizen_ticket_evidence(ticket_code=code, actor_user_id=user.id)
+            return detail_output(row, tuple(self._citizen_evidence(value) for value in values))
+
+        return self._run(context, "TicketService.get_citizen_report", work, actor_required=True)
+
+    def list_citizen_history(self, context, code: str, page: CitizenHistoryPageInput) -> OperationResult[CitizenHistoryPageOutput]:
+        def work():
+            user = self._require_current_citizen(context, lock=False)
+            self._validate_code(code, context)
+            ticket_id = self.tickets.get_citizen_report_id(user.id, code)
+            if ticket_id is None:
+                raise self._missing("ticket", context)
+            cursor_position = self._decode_page(page, context, "history", str(ticket_id), 100)
+            if self.events is None:
+                raise ApplicationError.catalog_unavailable("history", correlation_id=context.correlation_id)
+            from dataclasses import replace
+            query_page = replace(page, limit=min(page.limit, 100))
+            rows = self.events.list_citizen_history(ticket_id, query_page, cursor_position)
+            has_more = len(rows) > query_page.limit
+            rows = rows[: query_page.limit]
+            next_cursor = None
+            if has_more and rows:
+                row = rows[-1]
+                next_cursor = self._encode_cursor("history", str(ticket_id), row["event_time"], str(row["id"]))
+            return CitizenHistoryPageOutput(
+                tuple(CitizenHistoryItem(row["event_time"], *action_projection(row.get("action"))) for row in rows),
+                next_cursor,
+            )
+
+        return self._run(context, "TicketService.list_citizen_history", work, actor_required=True)
+
+    def get_public_report(self, context, code: str) -> OperationResult[PublicTicketOutput]:
+        def work():
+            self._validate_code(code, context)
+            row = self.tickets.get_public_report(code)
+            if row is None:
+                raise self._missing("ticket", context)
+            return public_output(row)
+
+        return self._run(context, "TicketService.get_public_report", work)
 
     def _process(self, context, operation: str, ticket_id, action_name, allowed, update):
         def work():
@@ -709,6 +818,7 @@ class TicketService(ServiceBase):
     ):
         contact_email = None if data.contact_email is UNSET else data.contact_email
         contact_phone = None if data.contact_phone is UNSET else data.contact_phone
+        email_notifications = effective_email_notifications(data.email_notifications)
         for _ in range(5):
             ticket = self.tickets.create_if_code_available(
                 TicketInsertInput(
@@ -720,11 +830,61 @@ class TicketService(ServiceBase):
                     address_id=data.address_id,
                     contact_email=contact_email,
                     contact_phone=contact_phone,
+                    email_notifications=email_notifications,
                 )
             )
             if ticket is not None:
                 return ticket
         raise ApplicationError.persistence_failure(correlation_id=context.correlation_id)
+
+    def _decode_page(self, page, context, scope: str, binding: str, maximum: int):
+        if not isinstance(page, (CitizenQueryPageInput, CitizenHistoryPageInput)):
+            raise ApplicationError.invalid_value("page", "La página no es válida.", correlation_id=context.correlation_id)
+        if page.limit > maximum:
+            raise ApplicationError.invalid_value("limit", "El límite supera el máximo permitido.", correlation_id=context.correlation_id)
+        if page.limit < 1:
+            raise ApplicationError.invalid_value("limit", "El límite no es válido.", correlation_id=context.correlation_id)
+        if page.cursor is None:
+            return None
+        if self.citizen_cursor_codec is None:
+            raise ApplicationError.invalid_value("cursor", "El cursor no es válido.", correlation_id=context.correlation_id)
+        try:
+            timestamp, tie_breaker = self.citizen_cursor_codec.decode(page.cursor, scope, binding)
+        except CitizenCursorError as error:
+            raise ApplicationError.invalid_value("cursor", "El cursor no es válido.", correlation_id=context.correlation_id, cause=error) from error
+        return timestamp, tie_breaker
+
+    def _encode_cursor(self, scope: str, binding: str, timestamp, tie_breaker: str):
+        return None if self.citizen_cursor_codec is None else self.citizen_cursor_codec.encode(scope, binding, timestamp, tie_breaker)
+
+    @staticmethod
+    def _validate_code(code: str, context) -> None:
+        try:
+            CitizenTicketCodeInput(code)
+        except (TypeError, ValueError) as error:
+            raise ApplicationError.invalid_value("code", "El código no es válido.", correlation_id=context.correlation_id)
+
+    def _require_ticket_resource(self, context, ticket) -> None:
+        actor = context.actor
+        if ticket is None:
+            raise self._missing("ticket", context)
+        if actor is None or _actor_role_name(actor) != RoleName.CREW.value:
+            return
+        membership = self.crew_members.get_by_user_id(actor.user_id) if self.crew_members is not None else None
+        if membership is None or membership.crew_id != ticket.crew_id:
+            raise self._missing("ticket", context)
+
+    def _citizen_evidence(self, value):
+        from api.contracts import CitizenEvidenceOutput
+        return CitizenEvidenceOutput(
+            evidence_id=value.id,
+            media_type=value.media_type,
+            size_bytes=value.size_bytes,
+            captured_at=value.captured_at,
+            capture_source=value.capture_source,
+            uploaded_at=value.uploaded_at,
+            content_available=(self.evidence_storage is not None and self.evidence_storage.exists(value.file_path)),
+        )
 
     @staticmethod
     def _registration_result_from_attempt(payload, context) -> CitizenTicketRegistrationOutput:
@@ -739,3 +899,9 @@ class TicketService(ServiceBase):
 
 def _upload_ids(value):
     return () if value is UNSET else value
+
+
+def _actor_role_name(actor) -> str | None:
+    public_user = getattr(actor, "public_user", None)
+    role_name = getattr(public_user, "role_name", None)
+    return role_name if type(role_name) is str else None

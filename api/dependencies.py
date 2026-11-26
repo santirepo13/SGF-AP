@@ -87,6 +87,7 @@ from api.services import (
     TicketService,
     UserService,
 )
+from api.services.tickets.citizen_projections import CitizenCursorCodec
 
 logger = logging.getLogger("sgf_ap.api")
 
@@ -229,6 +230,7 @@ class ApplicationDependencies:
         citizen_description_max_length: int = 4_000,
         evidence_storage: EvidenceStorageInterface | None = None,
         evidence_config: EvidenceStorageConfig | None = None,
+        citizen_cursor_secret: bytes | None = None,
     ) -> None:
         if type(citizen_description_max_length) is not int or citizen_description_max_length <= 0:
             raise ValueError("citizen_description_max_length must be a positive integer")
@@ -244,6 +246,7 @@ class ApplicationDependencies:
         self.citizen_description_max_length = citizen_description_max_length
         self.evidence_storage = evidence_storage or UnavailableEvidenceStorage()
         self.evidence_config = evidence_config or EvidenceStorageConfig()
+        self.citizen_cursor_codec = CitizenCursorCodec(citizen_cursor_secret) if citizen_cursor_secret is not None else None
 
     @contextmanager
     def bind_actor(self, actor: ActorContext | None) -> Iterator[None]:
@@ -288,6 +291,7 @@ class ApplicationDependencies:
                 self.citizen_description_max_length,
                 self.evidence_storage,
                 self.evidence_config,
+                self.citizen_cursor_codec,
             )
 
 
@@ -336,6 +340,7 @@ def prepare_application_dependencies(
         citizen_description_max_length,
         evidence_storage,
         evidence_config,
+        api_config.citizen_cursor_secret if api_config is not None else None,
     )
 
 
@@ -471,6 +476,7 @@ def _build_operation_dependencies(
     citizen_description_max_length: int = 4_000,
     evidence_storage: EvidenceStorageInterface | None = None,
     evidence_config: EvidenceStorageConfig | None = None,
+    citizen_cursor_codec: CitizenCursorCodec | None = None,
 ) -> OperationDependencies:
     effective_password_hasher = password_hasher or LazyArgon2idPasswordHasher()
     evidence_config = evidence_config or EvidenceStorageConfig()
@@ -532,6 +538,7 @@ def _build_operation_dependencies(
             members=repositories.crew_members,
             users=repositories.users,
             transaction=transaction,
+            authorizer=role_operation_authorizer,
         ),
         ticket_service=TicketService(
             tickets=repositories.tickets,
@@ -541,6 +548,7 @@ def _build_operation_dependencies(
             actions=repositories.actions,
             addresses=repositories.addresses,
             crews=repositories.crews,
+            crew_members=repositories.crew_members,
             evidences=repositories.evidences,
             events=repositories.history_events,
             roles=repositories.roles,
@@ -554,6 +562,8 @@ def _build_operation_dependencies(
             contributions=repositories.citizen_contributions,
             citizen_authorizer=CitizenAuthorizer(),
             citizen_description_max_length=citizen_description_max_length,
+            citizen_cursor_codec=citizen_cursor_codec,
+            evidence_storage=evidence_storage or UnavailableEvidenceStorage(),
             transaction=transaction,
             authorizer=role_operation_authorizer,
         ),
@@ -563,6 +573,7 @@ def _build_operation_dependencies(
             users=repositories.users,
             storage=evidence_storage or UnavailableEvidenceStorage(),
             roles=repositories.roles,
+            crew_members=repositories.crew_members,
             transaction=transaction,
             authorizer=role_operation_authorizer,
         ),
@@ -583,6 +594,7 @@ def _build_operation_dependencies(
             events=repositories.history_events,
             tickets=repositories.tickets,
             actions=repositories.actions,
+            crew_members=repositories.crew_members,
             transaction=transaction,
             authorizer=role_operation_authorizer,
         ),

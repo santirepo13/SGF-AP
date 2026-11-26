@@ -66,6 +66,16 @@ class CitizenEvidenceOutput:
     uploaded_at: datetime | None
     content_available: bool
 
+    def __post_init__(self) -> None:
+        if type(self.evidence_id) is not int or self.evidence_id <= 0:
+            raise ValueError("evidence_id must be a positive integer")
+        if type(self.content_available) is not bool:
+            raise ValueError("content_available must be a boolean")
+        if self.captured_at is not None:
+            ensure_aware(self.captured_at, "captured_at")
+        if self.uploaded_at is not None:
+            ensure_aware(self.uploaded_at, "uploaded_at")
+
 
 @dataclass(frozen=True, slots=True)
 class CitizenEvidenceListOutput:

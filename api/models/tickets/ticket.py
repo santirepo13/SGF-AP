@@ -24,7 +24,10 @@ class Ticket:
     solution: str | None
     crew_id: int | None
     created_at: datetime
+    email_notifications: bool = False
 
     def __post_init__(self) -> None:
         ensure_length(self.code, 24, "code")
         ensure_aware(self.created_at, "created_at")
+        if type(self.email_notifications) is not bool:
+            raise ValueError("email_notifications must be a boolean")

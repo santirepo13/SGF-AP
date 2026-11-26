@@ -14,6 +14,9 @@ from .access_storage import (
 from .authentication import AuthState, AuthenticatedSession, AuthenticationState, SUPPORTED_ROLE_NAMES
 from .config import load_client_config
 from .citizen_connector import CitizenReportConnector, HttpCitizenReportConnector
+from .display_dates import format_display_date, parse_display_date
+from .citizen_queries import CitizenQueryController, CitizenQuerySnapshot, QueryState
+from .citizen_query_views import CitizenQueryViews
 from .citizen_report import CitizenReportController, CitizenReportFormState, CitizenReportStatus
 from .report_attempt_storage import (
     MemoryReportAttemptStorage,
@@ -70,6 +73,12 @@ __all__ = [
     "CitizenReportStatus",
     "CitizenReportView",
     "HttpCitizenReportConnector",
+    "format_display_date",
+    "parse_display_date",
+    "CitizenQueryController",
+    "CitizenQuerySnapshot",
+    "QueryState",
+    "CitizenQueryViews",
     "MemoryReportAttemptStorage",
     "ReportAttemptStorage",
     "ReportAttemptStorageError",

@@ -74,6 +74,7 @@ CREATE TABLE tickets (
     diagnosis TEXT,
     solution TEXT,
     crew_id INT REFERENCES crews(id),
+    email_notifications BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -113,6 +114,12 @@ CREATE TABLE ticket_match_guards (
 
 CREATE INDEX tickets_open_match_lookup_idx
     ON tickets (address_id, failure_type_id, status_id, created_at DESC, code ASC);
+
+CREATE INDEX IF NOT EXISTS tickets_citizen_query_idx
+    ON tickets (reported_by, created_at DESC, code DESC);
+
+CREATE INDEX IF NOT EXISTS history_events_citizen_query_idx
+    ON history_events (ticket_id, event_time ASC, id ASC);
 
 BEGIN;
 

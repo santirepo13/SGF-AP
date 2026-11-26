@@ -7,8 +7,14 @@ import os
 import re
 from typing import Protocol
 
-import resend
-from resend.exceptions import ResendError
+try:
+    import resend
+    from resend.exceptions import ResendError
+except ModuleNotFoundError:
+    resend = None
+
+    class ResendError(Exception):
+        pass
 
 
 class PasswordRecoveryNotifier(Protocol):
@@ -42,7 +48,8 @@ class ResendPasswordRecoveryNotifier:
             raise ValueError("Resend sender is required")
         if type(timeout_seconds) is not int or timeout_seconds <= 0:
             raise ValueError("Resend timeout must be a positive integer")
-
+        if resend is None:
+            raise RuntimeError("Resend SDK is required when password-recovery email delivery is enabled")
         # The key originates in api/.env and is never included in a request,
         # response, exception reason, or log entry.
         os.environ["RESEND_API_KEY"] = api_key

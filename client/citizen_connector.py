@@ -33,6 +33,10 @@ class CitizenReportConnector(Protocol):
     def list_ticket_evidences(self, *, code: str) -> object: ...
     def list_contribution_evidences(self, *, contribution_id: str) -> object: ...
     def download_evidence(self, *, evidence_id: int) -> object: ...
+    def list_my_reports(self, limit: int = 20, cursor: str | None = None) -> object: ...
+    def get_my_report(self, code: str) -> object: ...
+    def list_my_report_history(self, code: str, limit: int = 50, cursor: str | None = None) -> object: ...
+    def get_public_report(self, code: str) -> object: ...
 
 
 class HttpCitizenReportConnector:
@@ -144,6 +148,48 @@ class HttpCitizenReportConnector:
             requires_identity=True,
             maximum_bytes=10_000_000,
         )
+
+    def list_my_reports(self, limit: int = 20, cursor: str | None = None) -> object:
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("limit must be between 1 and 50")
+        if cursor is not None and (type(cursor) is not str or not cursor or len(cursor) > 512):
+            raise ValueError("cursor is invalid")
+        return self._transport.get_json(
+            "/tickets/citizen/mine",
+            {"limit": limit, **({"cursor": cursor} if cursor is not None else {})},
+            requires_identity=True,
+        )
+
+    def get_my_report(self, code: str) -> object:
+        _validate_query_code(code)
+        return self._transport.get_json(
+            f"/tickets/citizen/mine/{quote(code, safe='')}", requires_identity=True
+        )
+
+    def list_my_report_history(self, code: str, limit: int = 50, cursor: str | None = None) -> object:
+        _validate_query_code(code)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if cursor is not None and (type(cursor) is not str or not cursor or len(cursor) > 512):
+            raise ValueError("cursor is invalid")
+        return self._transport.get_json(
+            f"/tickets/citizen/mine/{quote(code, safe='')}/history",
+            {"limit": limit, **({"cursor": cursor} if cursor is not None else {})},
+            requires_identity=True,
+        )
+
+    def get_public_report(self, code: str) -> object:
+        _validate_query_code(code)
+        return self._transport.get_json(
+            f"/tickets/public/{quote(code, safe='')}", requires_identity=False
+        )
+
+
+def _validate_query_code(code: str) -> None:
+    if type(code) is not str or not 1 <= len(code) <= 24 or not code.isascii():
+        raise ValueError("code is invalid")
+    if not code[0].isalnum() or any(not (character.isalnum() or character in "._-") for character in code):
+        raise ValueError("code is invalid")
 
 
 __all__ = ["CitizenReportConnector", "HttpCitizenReportConnector"]

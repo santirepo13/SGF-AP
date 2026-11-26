@@ -3,3 +3,4 @@ flet-secure-storage==1.0.5
 flet-camera==1.0.5
 flet-permission-handler==1.0.5
 python-dotenv
+tzdata

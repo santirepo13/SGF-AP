@@ -17,6 +17,9 @@ CITIZEN_REPORT_OPERATIONS = frozenset(
         "TicketService.get_citizen_attempt",
         "TicketService.contribute_citizen_evidence",
         "TicketService.get_citizen_contribution_attempt",
+        "TicketService.list_citizen_reports",
+        "TicketService.get_citizen_report",
+        "TicketService.list_citizen_history",
         "EvidenceUploadService.upload",
         "EvidenceUploadService.list_own",
         "EvidenceUploadService.delete_own",
@@ -52,6 +55,24 @@ _OPERATIONAL_PERMISSIONS = frozenset(
     }
 )
 
+_INTERNAL_READ_ROLES = frozenset({
+    RoleName.OPERATOR.value,
+    RoleName.COORDINATOR.value,
+    RoleName.CREW.value,
+    RoleName.ADMIN.value,
+})
+
+_INTERNAL_READ_OPERATIONS = frozenset({
+    "TicketService.get_by_id",
+    "TicketService.get_by_code",
+    "TicketService.list_by_filters",
+    "HistoryService.get_event",
+    "HistoryService.list_by_ticket",
+    "EvidenceService.get_by_id",
+    "EvidenceService.list_by_ticket",
+    "EvidenceService.list_by_ticket_and_uploader",
+})
+
 
 class RolePermissionChecker:
     """Resolve citizen permissions from the token role and retain explicit internal fallback."""
@@ -63,6 +84,8 @@ class RolePermissionChecker:
         role_name = _actor_role_name(actor)
         if role_name == RoleName.CITIZEN.value:
             return permission in _CITIZEN_PERMISSIONS
+        if operation in _INTERNAL_READ_OPERATIONS:
+            return role_name in _INTERNAL_READ_ROLES and permission == "operational_ticket_read"
         if role_name in {RoleName.OPERATOR.value, RoleName.COORDINATOR.value, RoleName.CREW.value}:
             return permission in _OPERATIONAL_PERMISSIONS
         if role_name == RoleName.ADMIN.value:
@@ -101,7 +124,24 @@ def role_operation_authorizer(context: ExecutionContext, operation: str) -> bool
     role_name = _actor_role_name(actor)
     if role_name == RoleName.CITIZEN.value:
         return operation in CITIZEN_REPORT_OPERATIONS or operation == "AddressService.create_or_reuse"
+    if operation in _INTERNAL_READ_OPERATIONS:
+        return role_name in _INTERNAL_READ_ROLES
+    if role_name not in _INTERNAL_READ_ROLES and operation in {
+        "TicketService.list_citizen_reports",
+        "TicketService.get_citizen_report",
+        "TicketService.list_citizen_history",
+    }:
+        return False
     return True
+
+
+def require_internal_read_role(context: ExecutionContext) -> None:
+    actor = context.actor
+    if actor is None:
+        raise ApplicationError.access_token_required(correlation_id=context.correlation_id)
+    role_name = _actor_role_name(actor)
+    if role_name not in _INTERNAL_READ_ROLES:
+        raise ApplicationError.forbidden(context.operation, correlation_id=context.correlation_id)
 
 
 def _actor_role_name(actor: object) -> str | None:
@@ -115,4 +155,5 @@ __all__ = [
     "CitizenAuthorizer",
     "RolePermissionChecker",
     "role_operation_authorizer",
+    "require_internal_read_role",
 ]
