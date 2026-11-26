@@ -134,9 +134,152 @@ Campos opcionales:
 | `contact_email` | Omitido o `null`; si existe, debe tener formato de correo válido. No identifica al reportante. |
 | `contact_phone` | Omitido o `null`; texto de hasta 32 caracteres. No implica SMS. |
 | `temporary_upload_ids` | Omitido o arreglo de hasta tres referencias opacas únicas. La carga y consumo de fotografías pertenecen al recorrido de evidencias. |
-| `email_notifications` | Omitido o booleano. Su valor efectivo inicial es `false`; la persistencia de preferencias pertenece al flujo posterior de notificaciones. |
+| `email_notifications` | Omitido o booleano. Su valor efectivo es `false` cuando se omite y se persiste el valor enviado. No admite `null`. |
 
-Los campos opcionales omitidos se conservan como `UNSET` durante la canonicalización del intento; no se confunden con `null` antes de calcular el digest idempotente. `temporary_upload_ids` y `email_notifications` no admiten `null`.
+Los campos opcionales omitidos se conservan como `UNSET` durante la canonicalización del intento; no se confunden con `null` antes de calcular el digest idempotente. `temporary_upload_ids` y `email_notifications` no admiten `null`. La preferencia se almacena en `tickets.email_notifications`.
+
+## Consultas ciudadanas seguras
+
+Los contratos de consulta no reutilizan `TicketOutput`, `EvidenceOutput` ni filas internas. Los campos permitidos son:
+
+| Contrato | Campos |
+| --- | --- |
+| `PublicTicketOutput` | `code`, `status`, `status_label`, `last_updated_at`, `public_summary` |
+| `CitizenTicketListItem` | `code`, `created_at`, `status`, `status_label`, `failure_type_label`, `last_updated_at` |
+| `CitizenTicketDetailOutput` | Campos de listado, `public_summary`, `description`, `formatted_address`, `contact_email`, `contact_phone`, `email_notifications`, referencias seguras de evidencia |
+| `CitizenHistoryItem` | `occurred_at`, `action`, `label` |
+| Páginas | `items`, `next_cursor` |
+
+Las referencias de evidencia solo incluyen `evidence_id`, `media_type`, `size_bytes`, `captured_at`, `capture_source`, `uploaded_at` y `content_available`.
+
+Los contratos no incluyen `reported_by`, identificadores internos de ticket o evento, `crew_id`, técnico, diagnóstico, solución, rutas, claves de almacenamiento, hashes, contactos ajenos, coordenadas, GPS ni ubicación precisa. Las fechas son ISO 8601 con zona horaria; no se aceptan fechas naive.
+
+Los estados públicos son `Registered/Registrado`, `Validated/Validado`, `Prioritized/Priorizado`, `Assigned/Asignado`, `InProgress/En atención`, `Blocked/Bloqueado`, `PendingClosure/Pendiente de cierre` y `Resolved/Resuelto`. Un estado no reconocido usa `Unavailable`, `Estado no disponible` y `No es posible mostrar el avance en este momento.` sin copiar el nombre interno.
+
+Las acciones históricas son `Registration/Reporte registrado`, `Validation/Reporte validado`, `Prioritization/Reporte priorizado`, `Assignment/Atención programada`, `Attention/Atención registrada`, `Blockage/Atención temporalmente bloqueada`, `Unblock/Atención reanudada`, `ClosureRequest/Resultado en revisión`, `Approval/Reporte resuelto` y `Rejection/El reporte continúa en atención`. `Rejection` nunca se presenta como reporte rechazado.
+
+Endpoints:
+
+```http
+GET /tickets/citizen/mine?limit=20&cursor=...
+GET /tickets/citizen/mine/{code}
+GET /tickets/citizen/mine/{code}/history?limit=50&cursor=...
+GET /tickets/public/{code}
+```
+
+La respuesta de listado de ejemplo tiene la forma `{"success":true,"data":{"items":[],"next_cursor":null},"error":null}`. Las consultas inválidas responden `VAL-002` con HTTP 400; la ausencia o falta de titularidad del detalle privado responde `RES-001` con HTTP 404. La ruta pública aplica `OperationPolicy(resolve_actor=False)` incluso si el cliente envía un token incidental vencido.
+
+### Ejemplos de respuestas ST3.3
+
+Lista privada paginada con resultados:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "code": "SGF-6DCD4CE23D88E2EE9568",
+        "created_at": "2026-11-04T14:20:00-05:00",
+        "status": "Registered",
+        "status_label": "Registrado",
+        "failure_type_label": "Light out",
+        "last_updated_at": "2026-11-04T14:20:00-05:00"
+      }
+    ],
+    "next_cursor": "opaque-signed-cursor"
+  },
+  "error": null
+}
+```
+
+Lista privada vacía:
+
+```json
+{
+  "success": true,
+  "data": {"items": [], "next_cursor": null},
+  "error": null
+}
+```
+
+Detalle privado propio:
+
+```json
+{
+  "success": true,
+  "data": {
+    "code": "SGF-6DCD4CE23D88E2EE9568",
+    "created_at": "2026-11-04T14:20:00-05:00",
+    "status": "Resolved",
+    "status_label": "Resuelto",
+    "failure_type_label": "Light out",
+    "last_updated_at": "2026-11-05T09:10:00-05:00",
+    "public_summary": "Se registró la resolución del reporte.",
+    "description": "La luminaria no enciende.",
+    "formatted_address": "Calle 10 # 20 - 30, Centro",
+    "contact_email": "ciudadano@example.com",
+    "contact_phone": "3000000000",
+    "email_notifications": true,
+    "evidences": []
+  },
+  "error": null
+}
+```
+
+Consulta pública existente:
+
+```json
+{
+  "success": true,
+  "data": {
+    "code": "SGF-6DCD4CE23D88E2EE9568",
+    "status": "InProgress",
+    "status_label": "En atención",
+    "last_updated_at": "2026-11-05T09:10:00-05:00",
+    "public_summary": "La atención del reporte está en curso."
+  },
+  "error": null
+}
+```
+
+Consulta pública inexistente:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {"code": "RES-001", "message": "Reporte no disponible"}
+}
+```
+
+Detalle privado de otra cuenta usa exactamente el mismo `RES-001` y no incluye información que permita distinguir un código existente de uno inexistente:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {"code": "RES-001", "message": "Reporte no disponible"}
+}
+```
+
+### Inventario de rutas antiguas
+
+| Ruta antigua | Operación | Política efectiva |
+| --- | --- | --- |
+| `GET /tickets/{ticket_id}` | `TicketService.get_by_id` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno; Citizen bloqueado. |
+| `GET /tickets/by-code/{code}` | `TicketService.get_by_code` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno; Citizen bloqueado. |
+| `GET /tickets` | `TicketService.list_by_filters` | Actor activo y `operational_ticket_read`; Crew queda limitado a su cuadrilla. |
+| `GET /history-events/{event_id}` | `HistoryService.get_event` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno. |
+| `GET /history-events/ticket/{ticket_id}` | `HistoryService.list_by_ticket` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno. |
+| `GET /evidences/{evidence_id}` | `EvidenceService.get_by_id` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno. |
+| `GET /evidences` | `EvidenceService.list_by_ticket` o `list_by_ticket_and_uploader` | Actor activo, `operational_ticket_read` y regla de recurso del rol interno. |
+
+Estas rutas antiguas no son aliases públicos de los contratos ciudadanos. El cliente Citizen usa únicamente las rutas `/tickets/citizen/mine`, `/tickets/citizen/mine/{code}`, `/tickets/citizen/mine/{code}/history`, `/tickets/citizen/mine/{code}/evidences` y `/tickets/public/{code}`.
+
+El listado usa límite entre 1 y 50, el historial entre 1 y 100, consulta `limit + 1`, no usa `OFFSET` y aplica siempre la cuenta autenticada. Los cursores son opacos, versionados, firmados, limitados y vinculados a la cuenta o al ticket. Un cursor inválido, manipulado o de otro alcance devuelve `VAL-002`. Una lista vacía es una respuesta exitosa con `items: []` y `next_cursor: null`.
+
+La consulta pública no requiere sesión y solo devuelve `PublicTicketOutput`; tanto un código inexistente como un recurso privado no disponible devuelven `RES-001`. Las rutas genéricas de ticket, historial y evidencia requieren actor activo y `operational_ticket_read`; Citizen no puede usarlas. Las rutas ciudadanas requieren Basic técnico y `User-Access-Token`, con `Cache-Control: no-store`.
 
 ### Resultado creado
 
@@ -287,22 +430,26 @@ No se registran cuerpos, contactos, credenciales, referencias temporales ni ruta
 | `CON-005` | 409 | La clave de operación ya se utilizó con otros datos. |
 | `REL-001` | 422 | Dirección o tipo de falla inexistente. |
 | `CAT-001` | 500 | Falta un estado o acción de catálogo requerido. |
+| `RES-001` | 404 | Reporte no disponible; el mismo resultado se usa para código inexistente y recurso privado ajeno. |
 
 ## Migraciones y despliegue
 
-En una instalación nueva, primero aplicar los scripts base de `db/`; luego ejecutar el runner versionado:
+`db/migrations/005_06_citizen_query_indexes.sql` añade los dos índices ciudadanos y `tickets.email_notifications`. El directorio de migraciones de este checkout no contiene las versiones históricas anteriores ni un runner identificado. No aplicar este archivo a una base hasta comprobar el mecanismo de migraciones desplegado y el historial registrado; esta entrega no aplica migraciones automáticamente.
 
-```bash
-cd /ruta/a/sgf-ap
-api/.venv/bin/python db/apply_migrations.py
+Antes del despliegue se debe verificar en PostgreSQL:
+
+```sql
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'tickets'
+  AND column_name = 'email_notifications';
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND indexname IN (
+    'tickets_citizen_query_idx',
+    'history_events_citizen_query_idx'
+  );
 ```
-
-En una base existente, ejecutar únicamente el runner para aplicar las versiones pendientes. El runner usa `schema_migrations`, checksum SHA-256 y un bloqueo asesor de PostgreSQL; una versión aplicada cuyo contenido cambie detiene el despliegue.
-
-Las migraciones requeridas son:
-
-1. `005_01_citizen_ticket` — línea base de reporte ciudadano, sin coordenadas;
-2. `005_02_operation_attempts` — ledger idempotente;
-3. `005_03_ticket_match_guards` — guardas de concurrencia e índice de coincidencias.
-
-Aplicarlas antes de desplegar la API. La aplicación verifica las tres versiones al iniciar y falla de forma segura si falta alguna; nunca las ejecuta durante una solicitud.

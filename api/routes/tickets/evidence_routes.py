@@ -10,6 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from api.contracts import EvidenceCreateInput, EvidenceOutput, EvidenceUploadLookupInput
 from api.dependencies import get_evidence_service, get_evidence_upload_service
+from api.errors import ApplicationError
 from api.http import (
     HttpOperation,
     HttpOperationAdapter,
@@ -62,8 +63,8 @@ def _execute(
     responses=response_envelopes({"type": "array", "items": _EVIDENCE_OUTPUT_SCHEMA}),
     summary="Consultar evidencias de un ticket",
     description=(
-        "ticket_id es obligatorio. Si se omite uploaded_by, consulta todas las evidencias del ticket; "
-        "si se proporciona, consulta solo los aportes de ese usuario. Una lista vacía es un resultado exitoso."
+        "Ruta operacional. Requiere actor activo y permiso operational_ticket_read. "
+        "Citizen debe utilizar exclusivamente las rutas de evidencias ciudadanas."
     ),
 )
 def list_by_ticket(
@@ -73,6 +74,8 @@ def list_by_ticket(
     ticket_id: Annotated[int, Query(description="Identificador obligatorio del ticket.")],
     uploaded_by: Annotated[int | None, Query(description="Usuario que incorporó la evidencia.")] = None,
 ) -> JSONResponse:
+    if ticket_id <= 0 or (uploaded_by is not None and uploaded_by <= 0):
+        raise ApplicationError.invalid_value("ticket_id", "Los identificadores deben ser positivos.")
     if uploaded_by is None:
         return _execute(request, adapter, evidence_service, _LIST_BY_TICKET, ticket_id)
     return _execute(
@@ -85,7 +88,11 @@ def list_by_ticket(
     )
 
 
-@router.post("/uploads", status_code=200)
+@router.post(
+    "/uploads",
+    status_code=200,
+    responses=response_envelopes({"type": "object"}),
+)
 async def upload_evidence(
     request: Request,
     evidence_upload_service: EvidenceUploadServiceDependency,
@@ -99,7 +106,7 @@ async def upload_evidence(
         data.content.close()
 
 
-@router.get("/uploads", status_code=200)
+@router.get("/uploads", status_code=200, responses=response_envelopes({"type": "object"}))
 def list_uploads(
     request: Request,
     evidence_upload_service: EvidenceUploadServiceDependency,
@@ -111,7 +118,7 @@ def list_uploads(
     return adapter.execute(request, _LIST_UPLOADS, evidence_upload_service, data)
 
 
-@router.delete("/uploads/{upload_id}", status_code=200)
+@router.delete("/uploads/{upload_id}", status_code=200, responses=response_envelopes({"type": "object"}))
 def delete_upload(
     upload_id: str,
     request: Request,
@@ -121,7 +128,11 @@ def delete_upload(
     return adapter.execute(request, _DELETE_UPLOAD, evidence_upload_service, upload_id)
 
 
-@router.get("/citizen/contributions/{contribution_id}", status_code=200)
+@router.get(
+    "/citizen/contributions/{contribution_id}",
+    status_code=200,
+    responses=response_envelopes({"type": "object"}),
+)
 def list_contribution_evidence(
     contribution_id: str,
     request: Request,
@@ -131,7 +142,17 @@ def list_contribution_evidence(
     return adapter.execute(request, _LIST_CONTRIBUTION, evidence_service, contribution_id)
 
 
-@router.get("/{evidence_id}/content", status_code=200)
+@router.get(
+    "/{evidence_id}/content",
+    status_code=200,
+    responses={
+        400: {"description": "Parámetros no válidos."},
+        401: {"description": "Credenciales técnicas o de usuario no válidas."},
+        403: {"description": "Actor o recurso no autorizado."},
+        404: {"description": "La evidencia no está disponible."},
+        500: {"description": "Error de almacenamiento."},
+    },
+)
 def open_evidence_content(
     evidence_id: int,
     request: Request,
@@ -149,7 +170,7 @@ def open_evidence_content(
     response_class=JSONResponse,
     responses=response_envelopes(_EVIDENCE_OUTPUT_SCHEMA),
     summary="Consultar una evidencia por identificador",
-    description="Devuelve los metadatos públicos de la evidencia indicada.",
+    description="Ruta operacional. Requiere actor activo y permiso operational_ticket_read.",
 )
 def get_by_id(
     evidence_id: int,

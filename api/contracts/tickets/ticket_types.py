@@ -17,9 +17,12 @@ class TicketCreateInput:
     address_id: int | None = None
     contact_email: str | None = None
     contact_phone: str | None = None
+    email_notifications: bool = False
 
     def __post_init__(self) -> None:
         ensure_length(self.code, 24, "code")
+        if type(self.email_notifications) is not bool:
+            raise ValueError("email_notifications must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -38,9 +41,12 @@ class TicketInsertInput:
     diagnosis: str | None = None
     solution: str | None = None
     crew_id: int | None = None
+    email_notifications: bool = False
 
     def __post_init__(self) -> None:
         ensure_length(self.code, 24, "code")
+        if type(self.email_notifications) is not bool:
+            raise ValueError("email_notifications must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -73,10 +79,13 @@ class TicketUpdateInput:
     diagnosis: str | None | Unset = UNSET
     solution: str | None | Unset = UNSET
     crew_id: int | None | Unset = UNSET
+    email_notifications: bool | Unset = UNSET
 
     def __post_init__(self) -> None:
         if self.code is not UNSET:
             ensure_length(self.code, 24, "code")
+        if self.email_notifications is not UNSET and type(self.email_notifications) is not bool:
+            raise ValueError("email_notifications must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -129,7 +138,10 @@ class TicketOutput:
     solution: str | None
     crew_id: int | None
     created_at: datetime
+    email_notifications: bool = False
 
     def __post_init__(self) -> None:
         ensure_length(self.code, 24, "code")
         ensure_aware(self.created_at, "created_at")
+        if type(self.email_notifications) is not bool:
+            raise ValueError("email_notifications must be a boolean")

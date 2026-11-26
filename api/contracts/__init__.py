@@ -47,6 +47,17 @@ from .tickets.citizen_ticket_types import (
     CitizenTicketCreateInput,
     CitizenTicketRegistrationOutput,
 )
+from .tickets.citizen_query_types import (
+    CitizenHistoryItem,
+    CitizenHistoryPageInput,
+    CitizenHistoryPageOutput,
+    CitizenQueryPageInput,
+    CitizenTicketCodeInput,
+    CitizenTicketDetailOutput,
+    CitizenTicketListItem,
+    CitizenTicketPageOutput,
+    PublicTicketOutput,
+)
 from .tickets.evidence_types import EvidenceCreateInput, EvidenceOutput, EvidenceLookupInput
 from .tickets.evidence_upload_types import *
 from .tickets.history_event_types import HistoryEventCreateInput, HistoryEventLookupInput, HistoryEventOutput
@@ -138,6 +149,15 @@ __all__ = [
     "CitizenTicketConfirmation",
     "CitizenTicketCreateInput",
     "CitizenTicketRegistrationOutput",
+    "CitizenHistoryItem",
+    "CitizenHistoryPageInput",
+    "CitizenHistoryPageOutput",
+    "CitizenQueryPageInput",
+    "CitizenTicketCodeInput",
+    "CitizenTicketDetailOutput",
+    "CitizenTicketListItem",
+    "CitizenTicketPageOutput",
+    "PublicTicketOutput",
     "EvidenceCreateInput",
     "EvidenceLookupInput",
     "EvidenceOutput",

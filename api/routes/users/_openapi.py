@@ -15,11 +15,12 @@ def response_envelopes(
     *,
     success_status: int = 200,
     nullable_data: bool = False,
+    extra_responses: dict[int, dict[str, object]] | None = None,
 ) -> dict[int, dict[str, object]]:
     """Document the public success and centralized error envelopes."""
 
     success_data = {**data_schema, "nullable": True} if nullable_data else data_schema
-    return {
+    responses = {
         success_status: {
             "description": "Recurso creado correctamente." if success_status == 201 else "Operación realizada correctamente.",
             "content": {
@@ -45,6 +46,9 @@ def response_envelopes(
         422: _error_response("La aplicación informó una referencia inválida."),
         500: _error_response("Ocurrió un fallo de persistencia o un error interno."),
     }
+    if extra_responses:
+        responses.update(extra_responses)
+    return responses
 
 
 def contract_schema(
@@ -58,6 +62,7 @@ def contract_schema(
     contract_fields = tuple(field for field in fields(contract_type) if field.name not in excluded_fields)
     return {
         "type": "object",
+        "additionalProperties": False,
         "required": [field.name for field in contract_fields if field.default is MISSING and field.default_factory is MISSING],
         "properties": {field.name: value_schema(annotations[field.name]) for field in contract_fields},
     }

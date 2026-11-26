@@ -53,11 +53,13 @@ def action(row): return Action(_v(row, "id"), ActionName.from_sql(_v(row, "name"
 
 
 def ticket(row):
-    return Ticket(**{name: _v(row, name) for name in (
+    value = {name: _v(row, name) for name in (
         "id", "code", "reported_by", "failure_type_id", "description",
         "address_id", "status_id", "priority_id", "contact_email",
         "contact_phone", "diagnosis", "solution", "crew_id", "created_at",
-    )})
+    )}
+    value["email_notifications"] = row.get("email_notifications", False)
+    return Ticket(**value)
 
 
 def open_ticket_match(row):

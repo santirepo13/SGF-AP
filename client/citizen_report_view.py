@@ -9,6 +9,7 @@ from typing import Any
 from .citizen_evidence_view import CitizenEvidenceView
 from .citizen_report import CitizenReportController, CitizenReportFormState, CitizenReportStatus
 from .design_tokens import COLORS
+from .display_dates import format_display_date
 
 
 class CitizenReportView:
@@ -46,6 +47,7 @@ class CitizenReportView:
         refresh: Callable[[], None],
         close: Callable[[], None],
         open_ticket: Callable[[str], None],
+        open_public: Callable[[str], None] | None = None,
         evidence_view: CitizenEvidenceView | None = None,
     ) -> None:
         self.ft = ft
@@ -56,6 +58,7 @@ class CitizenReportView:
         self._refresh = refresh
         self._close = close
         self._open_ticket = open_ticket
+        self._open_public = open_public or open_ticket
         self._evidence_view = evidence_view
         self._catalogs: dict[str, tuple[dict[str, object], ...]] = {}
         self._communes: tuple[dict[str, object], ...] = ()
@@ -233,7 +236,12 @@ class CitizenReportView:
             self._field_error(state, "contact_email"),
             self._field("contact_phone", "Teléfono", state.contact_phone, disabled=disabled),
             self._field_error(state, "contact_phone"),
-            self.ft.Text("Los avisos por correo no están disponibles todavía; estos contactos no cambian tu identidad.", size=12),
+            self.ft.Checkbox(
+                label="Recibir avisos por correo",
+                value=state.email_notifications,
+                on_change=self._email_notifications_changed,
+                disabled=disabled,
+            ),
         ]
         if self._catalog_error:
             controls.insert(2, self.ft.Text(self._catalog_error, color=COLORS["error"].hex))
@@ -292,8 +300,11 @@ class CitizenReportView:
                 self.ft.Text(f"Código: {code}", selectable=True),
                 self.ft.Text(f"Estado: {ticket.get('status', 'Registered')}"),
                 self.ft.Text(f"Fotografías asociadas: {ticket.get('evidence_count', 0)}"),
-                self.ft.Text(f"Fecha y hora: {ticket.get('created_at', '')}"),
-                self.ft.Button("Abrir consulta", on_click=lambda _: self._open_ticket(code)),
+                self.ft.Text(f"Fecha y hora: {self._date(ticket.get('created_at'))}"),
+                self.ft.Button(
+                    "Consultar reporte" if contribution else "Ver mi reporte",
+                    on_click=lambda _: (self._open_public if contribution else self._open_ticket)(code),
+                ),
                 self.ft.Button("Registrar otra falla", on_click=self._new_report),
                 self.ft.TextButton("Volver al área ciudadana", on_click=lambda _: self._close()),
             ],
@@ -321,7 +332,8 @@ class CitizenReportView:
             match_controls = [
                 self.ft.Text(code, weight=self.ft.FontWeight.BOLD),
                 self.ft.Text(f"{match['progress_label']} · {match['status']}"),
-                self.ft.Text(str(match["created_at"]), size=12),
+                self.ft.Text(self._date(match.get("created_at")), size=12),
+                self.ft.Button("Consultar reporte", on_click=lambda _, selected=code: self._open_public(selected)),
             ]
             if self._evidence_view is not None:
                 match_controls.append(
@@ -395,6 +407,12 @@ class CitizenReportView:
         await submission
         if await self._handle_protected_response(scope, self.controller.take_last_protected_response()):
             return
+        state = self.controller.snapshot()
+        if state.status is CitizenReportStatus.CONFIRMED and state.confirmation:
+            code = str(state.confirmation.get("code", ""))
+            if code:
+                self._open_ticket(code)
+                return
         self._refresh()
 
     def _contribute_to_match(self, target_code: str):
@@ -418,6 +436,12 @@ class CitizenReportView:
                 self.controller.take_last_protected_response(),
             ):
                 return
+            state = self.controller.snapshot()
+            if state.status is CitizenReportStatus.CONFIRMED and state.confirmation:
+                code = str(state.confirmation.get("ticket_code", state.confirmation.get("code", "")))
+                if code:
+                    self._open_public(code)
+                    return
             self._refresh()
         return handler
 
@@ -454,6 +478,11 @@ class CitizenReportView:
         await self.controller.start_new_report(account_id)
         if self._evidence_view is not None:
             self._evidence_view.clear_for_new_report()
+        self._refresh()
+
+    def _email_notifications_changed(self, event: Any) -> None:
+        value = getattr(getattr(event, "control", None), "value", False)
+        self.controller.set_email_notifications(value is True)
         self._refresh()
 
     async def _discard(self, event: Any) -> None:
@@ -570,6 +599,13 @@ class CitizenReportView:
 
     def _message_color(self, state: CitizenReportFormState) -> str:
         return COLORS["error"].hex if state.status is CitizenReportStatus.REJECTED else COLORS["text_secondary"].hex
+
+    @staticmethod
+    def _date(value: object) -> str:
+        try:
+            return format_display_date(value)
+        except ValueError:
+            return "Fecha no disponible"
 
 
 __all__ = ["CitizenReportView"]

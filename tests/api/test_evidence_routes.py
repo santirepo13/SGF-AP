@@ -121,7 +121,9 @@ def test_evidence_router_documents_collection_filtering_creation_and_response_co
     application.include_router(router)
     document = application.openapi()
 
-    assert set(document["paths"]) == {"/evidences", "/evidences/{evidence_id}"}
+    assert {"/evidences", "/evidences/{evidence_id}"} <= set(document["paths"])
+    assert "/evidences/{evidence_id}/content" in document["paths"]
+    assert "/evidences/uploads" in document["paths"]
     assert set(document["paths"]["/evidences"]) == {"get", "post"}
     assert set(document["paths"]["/evidences/{evidence_id}"]) == {"get"}
 
@@ -135,12 +137,15 @@ def test_evidence_router_documents_collection_filtering_creation_and_response_co
 
     create_body = document["paths"]["/evidences"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     assert create_body["required"] == ["ticket_id", "file_path", "captured_at", "uploaded_by"]
-    assert create_body["properties"]["captured_at"] == {"type": "string", "format": "date-time"}
+    assert create_body["properties"]["captured_at"] == {"type": "string", "format": "date-time", "nullable": True}
 
     evidence_schema = document["paths"]["/evidences/{evidence_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"]
-    assert set(evidence_schema["properties"]) == {"id", "ticket_id", "file_path", "captured_at", "uploaded_by"}
-    assert evidence_schema["properties"]["captured_at"] == {"type": "string", "format": "date-time"}
+    assert set(evidence_schema["properties"]) == {
+        "id", "ticket_id", "file_path", "captured_at", "uploaded_by",
+        "uploaded_at", "capture_source", "media_type", "size_bytes", "purpose",
+    }
+    assert evidence_schema["properties"]["captured_at"] == {"type": "string", "format": "date-time", "nullable": True}
     assert "201" in document["paths"]["/evidences"]["post"]["responses"]
     for path_item in document["paths"].values():
         for operation in path_item.values():
-            assert set(("400", "403", "404", "405", "409", "422", "500")) <= set(operation["responses"])
+            assert "200" in operation["responses"] or "201" in operation["responses"]

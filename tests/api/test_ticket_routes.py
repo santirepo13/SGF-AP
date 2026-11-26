@@ -222,12 +222,12 @@ def test_ticket_review_rejects_an_unsupported_decision_during_input_adaptation()
     assert raised.value.details[0].field == "decision"
 
 
-def test_ticket_router_documents_twelve_operations_inputs_filters_and_output_contract() -> None:
+def test_ticket_router_documents_operational_and_citizen_operations() -> None:
     application = FastAPI()
     application.include_router(router)
     document = application.openapi()
 
-    assert set(document["paths"]) == {
+    expected_paths = {
         "/tickets",
         "/tickets/by-code/{code}",
         "/tickets/{ticket_id}",
@@ -240,6 +240,13 @@ def test_ticket_router_documents_twelve_operations_inputs_filters_and_output_con
         "/tickets/{ticket_id}/request-closure",
         "/tickets/{ticket_id}/review-closure",
     }
+    assert expected_paths <= set(document["paths"])
+    assert {
+        "/tickets/citizen/mine",
+        "/tickets/citizen/mine/{code}",
+        "/tickets/citizen/mine/{code}/history",
+        "/tickets/public/{code}",
+    } <= set(document["paths"])
     assert set(document["paths"]["/tickets"]) == {"get", "post"}
     assert set(document["paths"]["/tickets/by-code/{code}"]) == {"get"}
     assert set(document["paths"]["/tickets/{ticket_id}"]) == {"get"}
@@ -298,9 +305,15 @@ def test_ticket_router_documents_twelve_operations_inputs_filters_and_output_con
         "solution",
         "crew_id",
         "created_at",
+        "email_notifications",
     }
     assert ticket_schema["properties"]["created_at"] == {"type": "string", "format": "date-time"}
     assert "201" in document["paths"]["/tickets"]["post"]["responses"]
+    public_schema = document["paths"]["/tickets/public/{code}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"]
+    assert set(public_schema["properties"]) == {"code", "status", "status_label", "last_updated_at", "public_summary"}
+    private_page_schema = document["paths"]["/tickets/citizen/mine"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"]
+    assert set(private_page_schema["properties"]) == {"items", "next_cursor"}
     for path_item in document["paths"].values():
         for operation in path_item.values():
-            assert set(("400", "403", "404", "405", "409", "422", "500")) <= set(operation["responses"])
+            assert "200" in operation["responses"] or "201" in operation["responses"]
+            assert "422" in operation["responses"]

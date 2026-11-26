@@ -15,6 +15,7 @@ from api.contracts import (
     TicketCreateInput, TicketOperationInput, UserActivationInput,
     UserCreateInput, UserLoginInput, UserUpdateInput,
     PasswordRecoveryRequestInput, PasswordRecoveryVerifyInput, PasswordResetInput,
+    CitizenQueryPageInput, CitizenHistoryPageInput, CitizenTicketCodeInput,
 )
 
 
@@ -77,9 +78,13 @@ def _policies() -> dict[str, OperationPolicy]:
             permission="citizen_evidence_read",
             input_types=(CitizenAttemptLookupInput,),
         ),
-        "TicketService.get_by_id": public,
-        "TicketService.get_by_code": public,
-        "TicketService.list_by_filters": public,
+        "TicketService.list_citizen_reports": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenQueryPageInput,)),
+        "TicketService.get_citizen_report": OperationPolicy(actor_required=True, permission="citizen_report_read", input_types=(CitizenTicketCodeInput,)),
+        "TicketService.list_citizen_history": OperationPolicy(actor_required=True, permission="citizen_report_read"),
+        "TicketService.get_public_report": OperationPolicy(resolve_actor=False),
+        "TicketService.get_by_id": OperationPolicy(actor_required=True, permission="operational_ticket_read"),
+        "TicketService.get_by_code": OperationPolicy(actor_required=True, permission="operational_ticket_read"),
+        "TicketService.list_by_filters": OperationPolicy(actor_required=True, permission="operational_ticket_read"),
         **{f"TicketService.{name}": OperationPolicy(actor_required=True, permission="process_tickets", input_types=(input_type,)) for name, input_type in (
             ("validate", TicketOperationInput), ("prioritize", TicketOperationInput),
             ("assign", TicketAssignmentInput), ("record_attention", TicketAttentionInput),
@@ -126,8 +131,8 @@ def _policies() -> dict[str, OperationPolicy]:
             actor_required=True,
             permission="citizen_evidence_upload",
         ),
-        "HistoryService.get_event": public,
-        "HistoryService.list_by_ticket": public,
+        "HistoryService.get_event": OperationPolicy(actor_required=True, permission="operational_ticket_read"),
+        "HistoryService.list_by_ticket": OperationPolicy(actor_required=True, permission="operational_ticket_read"),
         "HistoryService.create_event": OperationPolicy(actor_required=True, permission="create_history_event", input_types=(HistoryEventCreateInput,)),
     }
 

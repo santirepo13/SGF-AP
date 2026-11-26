@@ -43,8 +43,8 @@ def _execute(
     responses=response_envelopes({"type": "array", "items": _HISTORY_EVENT_OUTPUT_SCHEMA}),
     summary="Consultar el historial de un ticket",
     description=(
-        "ticket_id es obligatorio. Devuelve los eventos en orden ascendente por event_time e id; "
-        "una lista vacía es un resultado exitoso y no implica que el ticket no exista."
+        "Ruta operacional. Requiere actor activo y permiso operational_ticket_read. "
+        "Citizen debe utilizar /tickets/citizen/mine/{code}/history."
     ),
 )
 def list_by_ticket(
@@ -62,7 +62,7 @@ def list_by_ticket(
     response_class=JSONResponse,
     responses=response_envelopes(_HISTORY_EVENT_OUTPUT_SCHEMA),
     summary="Consultar un evento de historial por identificador",
-    description="Devuelve el evento indicado o RES-001 cuando ese evento no existe.",
+    description="Ruta operacional. Requiere actor activo y permiso operational_ticket_read.",
 )
 def get_event(
     event_id: int,

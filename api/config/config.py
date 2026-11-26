@@ -129,6 +129,12 @@ class APIConfig:
             raise RuntimeError("access-token configuration is not initialized")
         return self.access_token.ttl_seconds
 
+    @property
+    def citizen_cursor_secret(self) -> bytes:
+        """Return domain-separated key material for citizen cursors."""
+
+        return hashlib.sha256(self.access_token_secret + b"sgf-ap/citizen-cursor").digest()
+
 
 def load_api_config(
     env_file: str | Path | None = None,
